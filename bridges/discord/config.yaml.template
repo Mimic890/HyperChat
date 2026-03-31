@@ -1,0 +1,86 @@
+# mautrix-discord configuration
+# Full documentation: https://docs.mau.fi/bridges/go/discord/configuration.html
+# Placeholders are substituted by make setup from your .env file.
+#
+# IMPORTANT: Create your Discord bot at https://discord.com/developers/applications
+# Required intents: Server Members, Message Content
+
+homeserver:
+    address: http://synapse:8008
+    domain: ${DOMAIN}
+    software: standard
+    status_endpoint: ~
+    message_send_checkpoint_endpoint: ~
+    async_media: false
+    websocket: false
+    ping_interval_seconds: 0
+
+appservice:
+    address: http://bridge-discord:29319
+    hostname: 0.0.0.0
+    port: 29319
+    max_body_size: 1
+
+    database:
+        type: postgres
+        uri: postgres://mautrix_discord:${BRIDGE_DISCORD_DB_PASSWORD}@postgres:5432/mautrix_discord?sslmode=disable
+        max_open_conns: 20
+        max_idle_conns: 2
+
+    id: discord
+    bot:
+        username: discordbot
+        displayname: Discord Bridge Bot
+        avatar: mxc://maunium.net/nIdEykemnwdisvHMoXDdBsHe
+
+    ephemeral_events: true
+
+    as_token: ""
+    hs_token: ""
+
+discord:
+    # Bot token from Discord Developer Portal
+    bot_token: ${DISCORD_BOT_TOKEN}
+    # Set to true if using a user token instead of a bot token (not recommended)
+    selfbot_email: ""
+    selfbot_password: ""
+
+bridge:
+    username_template: "discord_{{.}}"
+    displayname_template: "{{.Username}}#{{.Discriminator}} (Discord)"
+    channel_name_template: "#{{.Name}}"
+    guild_name_template: "{{.Name}}"
+
+    command_prefix: "!dc"
+
+    permissions:
+        "*": relay
+        "${DOMAIN}": user
+        "@admin:${DOMAIN}": admin
+
+    relay:
+        enabled: false
+        admin_only: true
+
+    encryption:
+        allow: true
+        default: false
+        require: false
+        allow_key_sharing: false
+        rotation:
+            enable_custom: false
+            milliseconds: 604800000
+            messages: 100
+
+    private_chat_portal_meta: default
+    federate_rooms: true
+    bridge_notices: true
+
+    message_status_events: false
+    delivery_receipts: false
+
+logging:
+    min_level: info
+    writers:
+        - type: stdout
+          format: pretty-colored

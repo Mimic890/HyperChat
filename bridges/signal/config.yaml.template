@@ -1,0 +1,78 @@
+# mautrix-signal configuration
+# Full documentation: https://docs.mau.fi/bridges/go/signal/configuration.html
+# Placeholders are substituted by make setup from your .env file.
+#
+# Signal bridge uses a built-in Signal client (libsignal).
+# Link your phone via the "!signal link" command after setup.
+
+homeserver:
+    address: http://synapse:8008
+    domain: ${DOMAIN}
+    software: standard
+    status_endpoint: ~
+    message_send_checkpoint_endpoint: ~
+    async_media: false
+    websocket: false
+    ping_interval_seconds: 0
+
+appservice:
+    address: http://bridge-signal:29320
+    hostname: 0.0.0.0
+    port: 29320
+    max_body_size: 1
+
+    database:
+        type: postgres
+        uri: postgres://mautrix_signal:${BRIDGE_SIGNAL_DB_PASSWORD}@postgres:5432/mautrix_signal?sslmode=disable
+        max_open_conns: 20
+        max_idle_conns: 2
+
+    id: signal
+    bot:
+        username: signalbot
+        displayname: Signal Bridge Bot
+        avatar: mxc://maunium.net/wPJgTQbZOtpBFmDNkiNEMDUp
+
+    ephemeral_events: true
+
+    as_token: ""
+    hs_token: ""
+
+bridge:
+    username_template: "signal_{{.}}"
+    displayname_template: "{{.ProfileName}} (Signal)"
+
+    command_prefix: "!signal"
+
+    permissions:
+        "*": relay
+        "${DOMAIN}": user
+        "@admin:${DOMAIN}": admin
+
+    relay:
+        enabled: false
+        admin_only: true
+
+    encryption:
+        allow: true
+        default: true    # Signal-to-Matrix encryption enabled by default
+        require: false
+        allow_key_sharing: true
+        rotation:
+            enable_custom: false
+            milliseconds: 604800000
+            messages: 100
+
+    delivery_receipts: true
+    send_presence_on_typing: true
+    federate_rooms: true
+    bridge_notices: true
+
+    # Number verification (optional — for linking without scanning QR)
+    # captcha_key: ""
+
+logging:
+    min_level: info
+    writers:
+        - type: stdout
+          format: pretty-colored

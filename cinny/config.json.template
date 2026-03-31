@@ -1,0 +1,10 @@
+{
+    "defaultHomeserver": 0,
+    "homeserverList": [
+        {
+            "name": "${SERVER_NAME}",
+            "url": "${MATRIX_BASE_URL}"
+        }
+    ],
+    "allowCustomHomeservers": true
+}

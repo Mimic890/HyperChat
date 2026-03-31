@@ -1,0 +1,761 @@
+SHELL   := /bin/bash
+DC      := docker compose
+DC_DEV  := docker compose -f docker-compose.dev.yml
+
+.DEFAULT_GOAL := help
+.ONESHELL:
+.SILENT:
+
+.PHONY: help secrets check build email \
+        start pull up down restart upgrade update clear \
+        status health logs backup admin shell \
+        dev dev-down dev-reset dev-status dev-logs dev-admin dev-shell
+
+# ── ANSI codes ────────────────────────────────────────────────────────────────
+GR := \033[32m
+YL := \033[33m
+RD := \033[31m
+CY := \033[36m
+B  := \033[1m
+D  := \033[2m
+R  := \033[0m
+
+# ── Box header ────────────────────────────────────────────────────────────────
+define _header
+printf '\n$(CY)$(B)  ╔══════════════════════════════════════════════════╗$(R)\n'
+printf   '$(CY)$(B)  ║$(R)  🔥  $(B)HyperChat$(R)   %-33s$(CY)$(B) ║$(R)\n' '$(1)'
+printf   '$(CY)$(B)  ╚══════════════════════════════════════════════════╝$(R)\n\n'
+endef
+
+# ── Python: status table ──────────────────────────────────────────────────────
+define _status_py
+import json, sys
+R  = '\033[0m';  B  = '\033[1m';  D  = '\033[2m'
+GR = '\033[32m'; YL = '\033[33m'; RD = '\033[31m'; CY = '\033[36m'
+raw = sys.stdin.read().strip()
+if not raw:
+    print(f'\n  {YL}No containers found.{R}\n')
+    sys.exit(0)
+services = []
+for line in raw.split('\n'):
+    line = line.strip()
+    if line:
+        try: services.append(json.loads(line))
+        except json.JSONDecodeError: pass
+if not services:
+    print(f'\n  {YL}No services running.{R}\n')
+    sys.exit(0)
+services.sort(key=lambda s: s.get('Service') or s.get('Name', ''))
+col_n = max(max(len(s.get('Service') or s.get('Name', ''))      for s in services), len('Service')) + 1
+col_s = max(max(len(s.get('State', '') or '')                   for s in services), len('State'))   + 1
+col_h = max(max(len(s.get('Health', '') or '—')                 for s in services), len('Health'))  + 1
+col_u = max(max(len(s.get('RunningFor', '') or '—')             for s in services), len('Uptime'))  + 1
+def hline(l, mc, r):
+    return (f'  {CY}{l}{"─"*(col_n+3)}{mc}{"─"*(col_s+2)}'
+            f'{mc}{"─"*(col_h+2)}{mc}{"─"*(col_u+2)}{r}{R}')
+print()
+print(hline('╭','┬','╮'))
+print(f'  {CY}│{R}  {B}{"Service":<{col_n}}{R} '
+      f'{CY}│{R} {D}{"State":<{col_s}}{R} '
+      f'{CY}│{R} {D}{"Health":<{col_h}}{R} '
+      f'{CY}│{R} {D}{"Uptime":<{col_u}}{R} {CY}│{R}')
+print(hline('├','┼','┤'))
+running = stopped = 0
+for s in services:
+    name   = s.get('Service') or s.get('Name', '?')
+    state  = s.get('State', '?')
+    health = s.get('Health', '') or '—'
+    uptime = s.get('RunningFor', '') or '—'
+    if state == 'running':
+        running += 1; icon = f'{GR}●{R}'; sc = GR
+    elif state == 'exited':
+        stopped += 1; icon = f'{RD}●{R}'; sc = RD
+    else:
+        icon = f'{YL}●{R}'; sc = YL
+    hc = GR if health == 'healthy' else (RD if health == 'unhealthy' else D)
+    print(f'  {CY}│{R} {icon} {B}{name:<{col_n}}{R} '
+          f'{CY}│{R} {sc}{state:<{col_s}}{R} '
+          f'{CY}│{R} {hc}{health:<{col_h}}{R} '
+          f'{CY}│{R} {D}{uptime:<{col_u}}{R} {CY}│{R}')
+print(hline('╰','┴','╯'))
+sc = RD if stopped > 0 else D
+print(f'\n  {D}{len(services)} services{R}  {CY}·{R}  {GR}{B}{running} running{R}  {CY}·{R}  {sc}{stopped} stopped{R}\n')
+endef
+
+# ── Python: health details ────────────────────────────────────────────────────
+define _health_py
+import json, sys, subprocess
+R  = '\033[0m';  B  = '\033[1m';  D  = '\033[2m'
+GR = '\033[32m'; YL = '\033[33m'; RD = '\033[31m'
+res = subprocess.run(['docker','compose','ps','--format','json'],
+                     capture_output=True, text=True)
+services = [json.loads(l) for l in res.stdout.strip().split('\n') if l.strip()]
+if not services:
+    print(f'\n  {YL}No services found.{R}\n'); sys.exit(0)
+services.sort(key=lambda s: s.get('Service') or s.get('Name', ''))
+for s in services:
+    name   = s.get('Service') or s.get('Name', '?')
+    state  = s.get('State', '?')
+    health = s.get('Health', '') or 'none'
+    status = s.get('Status', '')
+    sc = GR if state == 'running' else (RD if state == 'exited' else D)
+    hc = GR if health == 'healthy' else (RD if health == 'unhealthy' else D)
+    print(f'  {sc}●{R}  {B}{name:<24}{R}  {sc}{state:<10}{R}  health: {hc}{health}{R}')
+    if status:
+        print(f'       {D}{status}{R}')
+    if health == 'unhealthy':
+        r2 = subprocess.run(['docker','compose','ps','-q',name], capture_output=True, text=True)
+        cid = r2.stdout.strip()
+        if cid:
+            r3 = subprocess.run(
+                ['docker','inspect','--format',
+                 '{{range .State.Health.Log}}{{.Output}}{{end}}', cid],
+                capture_output=True, text=True)
+            for line in r3.stdout.strip().split('\n')[-3:]:
+                if line.strip(): print(f'       {RD}{line.strip()}{R}')
+    print()
+endef
+
+# ── Python: secrets manager ───────────────────────────────────────────────────
+define _secrets_py
+import os, re, subprocess, sys, shutil
+from datetime import datetime
+R  = '\033[0m';  B  = '\033[1m';  D  = '\033[2m'
+GR = '\033[32m'; YL = '\033[33m'; RD = '\033[31m'; CY = '\033[36m'
+ENV_FILE = '.env.override'
+AUTO = {
+    'POSTGRES_PASSWORD':           24,
+    'MACAROON_SECRET_KEY':         32,
+    'FORM_SECRET':                 32,
+    'REGISTRATION_SHARED_SECRET':  32,
+    'TURN_SECRET':                 32,
+    'LIVEKIT_API_SECRET':          32,
+    'BRIDGE_TELEGRAM_DB_PASSWORD': 16,
+    'BRIDGE_WHATSAPP_DB_PASSWORD': 16,
+    'BRIDGE_DISCORD_DB_PASSWORD':  16,
+    'BRIDGE_SIGNAL_DB_PASSWORD':   16,
+}
+if not os.path.exists(ENV_FILE):
+    if not os.path.exists('.env.override.example'):
+        print(f'\n  {RD}✗{R}  {ENV_FILE} not found\n'); sys.exit(1)
+    shutil.copy('.env.override.example', ENV_FILE)
+    print(f'  {GR}✓{R}  Created {ENV_FILE} from example\n')
+with open(ENV_FILE) as f:
+    content = f.read()
+def get_val(key):
+    m = re.search(rf'^{key}=(.+)$$', content, re.M)
+    return m.group(1).strip() if m else ''
+existing = {k for k in AUTO if get_val(k)}
+force = False
+if existing:
+    print(f'  {YL}⚠{R}  {len(existing)} secret(s) already set\n')
+    try: ans = input(f'  Regenerate ALL secrets (existing will be lost)? [y/N]: ').strip().lower()
+    except (KeyboardInterrupt, EOFError): print(f'\n  {D}Cancelled{R}\n'); sys.exit(0)
+    print()
+    force = (ans == 'y')
+    if not force:
+        print(f'  {D}Only filling empty secrets{R}\n')
+os.makedirs('backups', exist_ok=True)
+ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+bak = f'backups/.env.override.{ts}'
+shutil.copy(ENV_FILE, bak)
+print(f'  {D}backup → {bak}{R}\n')
+generated = []; kept = []
+new_content = content
+for key, nbytes in AUTO.items():
+    has_val = bool(get_val(key))
+    if has_val and not force:
+        kept.append(key); continue
+    val = subprocess.run(['openssl','rand','-hex',str(nbytes)],
+                         capture_output=True, text=True).stdout.strip()
+    m = re.search(rf'^{key}=.*$$', new_content, re.M)
+    if m:
+        new_content = re.sub(rf'^{key}=.*$$', f'{key}={val}', new_content, flags=re.M)
+    else:
+        new_content += f'\n{key}={val}\n'
+    generated.append(key)
+with open(ENV_FILE, 'w') as f:
+    f.write(new_content)
+col = max(len(k) for k in AUTO) + 2
+print(f'  {CY}{B}{"Key":<{col}}{R}  Status')
+print(f'  {"─"*col}  {"──────────"}')
+for k in AUTO:
+    if k in generated: print(f'  {B}{k:<{col}}{R}  {GR}✓ generated{R}')
+    else:              print(f'  {D}{k:<{col}}{R}  {D}— kept{R}')
+print()
+if generated:
+    print(f'  {GR}{B}✓ {len(generated)} secret(s) generated{R}  {CY}·{R}  {D}{len(kept)} kept{R}\n')
+    print(f'  {D}Next step: {CY}make check{R}\n')
+else:
+    print(f'  {GR}✓ All secrets already set — nothing changed{R}\n')
+endef
+
+# ── Python: config checker ────────────────────────────────────────────────────
+define _check_py
+import os, re, socket, sys
+R  = '\033[0m';  B  = '\033[1m';  D  = '\033[2m'
+GR = '\033[32m'; YL = '\033[33m'; RD = '\033[31m'; CY = '\033[36m'
+ENV_FILE = '.env.override'
+if not os.path.exists(ENV_FILE):
+    print(f'\n  {RD}✗{R}  {ENV_FILE} not found — run: make secrets\n'); sys.exit(1)
+env = {}
+with open(ENV_FILE) as f:
+    for line in f:
+        line = line.strip()
+        if line and not line.startswith('#'):
+            m = re.match(r'^([A-Z_][A-Z0-9_]*)=(.*)$$', line)
+            if m: env[m.group(1)] = m.group(2).strip('"\'')
+def get(k, d=''): return env.get(k, d)
+errors = []; warnings = []
+mode_raw = get('DEPLOY_MODE', '1')
+try:
+    mode = int(mode_raw)
+    if mode not in (1,2,3,4): raise ValueError
+except ValueError:
+    errors.append(f'DEPLOY_MODE must be 1, 2, 3, or 4 (got: {mode_raw!r})')
+    mode = 1
+domain = get('DOMAIN', '')
+if mode in (3,4):
+    if not domain or domain == 'localhost':
+        errors.append('DOMAIN is required for server modes (3 and 4)')
+    elif domain.startswith('http'):
+        errors.append(f'DOMAIN must not include https:// — got: {domain!r}')
+if mode == 4:
+    if not get('LETSENCRYPT_EMAIL'):
+        errors.append('LETSENCRYPT_EMAIL is required for mode 4 (Traefik + SSL)')
+SECRETS = ['POSTGRES_PASSWORD','MACAROON_SECRET_KEY','FORM_SECRET',
+           'REGISTRATION_SHARED_SECRET','TURN_SECRET','LIVEKIT_API_SECRET',
+           'BRIDGE_TELEGRAM_DB_PASSWORD','BRIDGE_WHATSAPP_DB_PASSWORD',
+           'BRIDGE_DISCORD_DB_PASSWORD','BRIDGE_SIGNAL_DB_PASSWORD']
+empty_secrets = [k for k in SECRETS if not get(k)]
+if empty_secrets:
+    errors.append(f'{len(empty_secrets)} secret(s) are empty — run: make secrets')
+ports_seen = {}
+PORT_KEYS = ['PORT_SYNAPSE','PORT_ELEMENT','PORT_CINNY','PORT_ADMIN','PORT_LIVEKIT','PORT_STICKERS']
+for pk in PORT_KEYS:
+    v = get(pk)
+    if v:
+        try:
+            p = int(v)
+            if not (1024 <= p <= 65535):
+                errors.append(f'{pk}={v} — port must be between 1024 and 65535')
+            elif v in ports_seen:
+                errors.append(f'{pk}={v} conflicts with {ports_seen[v]}')
+            else:
+                ports_seen[v] = pk
+        except ValueError:
+            errors.append(f'{pk}={v!r} — must be an integer')
+if mode in (2,4):
+    for port in ([80] if mode == 2 else [80, 443]):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.settimeout(1)
+                if s.connect_ex(('127.0.0.1', port)) == 0:
+                    warnings.append(f'Port {port} appears to be in use on localhost')
+        except Exception:
+            pass
+bridge_enabled = any(get(f'ENABLE_BRIDGE_{b}','').lower()=='true'
+                     for b in ('TELEGRAM','WHATSAPP','DISCORD','SIGNAL'))
+if get('ENABLE_BRIDGE_TELEGRAM','').lower()=='true' and not get('TELEGRAM_API_ID'):
+    warnings.append('TELEGRAM_API_ID is empty — bridge will not work without it')
+if get('ENABLE_BRIDGE_TELEGRAM','').lower()=='true' and not get('TELEGRAM_API_HASH'):
+    warnings.append('TELEGRAM_API_HASH is empty — bridge will not work without it')
+if get('ENABLE_BRIDGE_DISCORD','').lower()=='true' and not get('DISCORD_BOT_TOKEN'):
+    warnings.append('DISCORD_BOT_TOKEN is empty — bridge will not work without it')
+MODE_LABELS = {1:'local (no proxy)', 2:'local + Traefik (HTTP)', 3:'server (own proxy)', 4:'server + Traefik (HTTPS + Let\'s Encrypt)'}
+col = 26
+print()
+print(f'  {CY}{B}{"Setting":<{col}}{R}  Value')
+print(f'  {"─"*col}  {"─"*30}')
+print(f'  {B}{"DEPLOY_MODE":<{col}}{R}  {mode} — {MODE_LABELS.get(mode,"")}')
+print(f'  {B}{"DOMAIN":<{col}}{R}  {domain or D+"(not set)"+R}')
+svc_on = [k.replace("ENABLE_","").lower() for k,v in env.items()
+          if k.startswith("ENABLE_") and v.lower()=="true"]
+print(f'  {B}{"Services":<{col}}{R}  {", ".join(svc_on) if svc_on else D+"none"+R}')
+secret_ok = len(SECRETS) - len(empty_secrets)
+print(f'  {B}{"Secrets":<{col}}{R}  {GR}{secret_ok}/{len(SECRETS)} filled{R}')
+print()
+if warnings:
+    for w in warnings: print(f'  {YL}⚠{R}  {w}')
+    print()
+if errors:
+    for e in errors: print(f'  {RD}✗{R}  {e}')
+    print(f'\n  {RD}{B}✗ {len(errors)} error(s) — fix before running make build{R}\n')
+    sys.exit(1)
+else:
+    print(f'  {GR}{B}✓ All checks passed{R}  — run {CY}make build{R} to generate configs\n')
+endef
+
+# ── Python: config builder ────────────────────────────────────────────────────
+define _build_py
+import os, re, shutil, subprocess, sys
+from pathlib import Path
+R  = '\033[0m';  B  = '\033[1m';  D  = '\033[2m'
+GR = '\033[32m'; YL = '\033[33m'; RD = '\033[31m'; CY = '\033[36m'
+def die(msg): print(f'\n  {RD}✗{R}  {msg}\n'); sys.exit(1)
+def ok(msg):  print(f'  {GR}✓{R}  {msg}')
+def info(msg):print(f'  {CY}→{R}  {msg}')
+ENV_FILE = '.env.override'
+if not Path(ENV_FILE).exists():
+    die(f'{ENV_FILE} not found — run: make secrets')
+env = {}
+with open(ENV_FILE) as f:
+    for line in f:
+        s = line.strip()
+        if s and not s.startswith('#'):
+            m = re.match(r'^([A-Z_][A-Z0-9_]*)=(.*)$$', s)
+            if m: env[m.group(1)] = m.group(2).strip('"\'')
+def get(k, d=''): return env.get(k, d)
+mode = int(get('DEPLOY_MODE','1'))
+domain = get('DOMAIN','localhost')
+server_name = get('SERVER_NAME','hyperchat')
+le_email = get('LETSENCRYPT_EMAIL','')
+is_server  = mode in (3,4)
+is_traefik = mode in (2,4)
+is_ssl     = mode == 4
+if is_server:
+    matrix_server_name = domain
+    matrix_base_url    = f'https://matrix.{domain}'
+    traefik_tls        = 'true'
+    traefik_ep         = 'websecure'
+    serve_wellknown    = 'true'
+    bind_addr          = '0.0.0.0'
+else:
+    port_synapse       = get('PORT_SYNAPSE','8008')
+    matrix_server_name = 'localhost'
+    matrix_base_url    = f'http://localhost:{port_synapse}'
+    traefik_tls        = 'false'
+    traefik_ep         = 'web'
+    serve_wellknown    = 'false'
+    bind_addr          = '127.0.0.1'
+en = lambda k: get(f'ENABLE_{k}','false').lower() == 'true'
+profiles = []
+if en('ELEMENT'):         profiles.append('element')
+if en('CINNY'):           profiles.append('cinny')
+if en('VOIP'):            profiles.append('voip')
+if en('BRIDGE_TELEGRAM'): profiles.append('bridge-telegram')
+if en('BRIDGE_WHATSAPP'): profiles.append('bridge-whatsapp')
+if en('BRIDGE_DISCORD'):  profiles.append('bridge-discord')
+if en('BRIDGE_SIGNAL'):   profiles.append('bridge-signal')
+if en('STICKERS'):        profiles.append('stickers')
+if is_traefik:
+    compose_file = 'docker-compose.yml:docker-compose.traefik.yml'
+else:
+    compose_file = 'docker-compose.yml:docker-compose.ports.yml'
+has_bridges = any(en(f'BRIDGE_{b}') for b in ('TELEGRAM','WHATSAPP','DISCORD','SIGNAL'))
+if has_bridges:
+    bridge_entries = ['app_service_config_files:']
+    for bname in ('telegram','whatsapp','discord','signal'):
+        if en(f'BRIDGE_{bname.upper()}'):
+            bridge_entries.append(f'  - /bridges/{bname}/registration.yaml')
+    app_svc_block = '\n'.join(bridge_entries)
+else:
+    app_svc_block = '# app_service_config_files: []  # no bridges enabled'
+smtp_enabled = 'true' if get('SMTP_HOST') else 'false'
+full_env = dict(env)
+full_env.update({
+    'MATRIX_SERVER_NAME':       matrix_server_name,
+    'MATRIX_BASE_URL':          matrix_base_url,
+    'SERVER_NAME':              server_name,
+    'BIND_ADDR':                bind_addr,
+    'TRAEFIK_TLS':              traefik_tls,
+    'TRAEFIK_ENTRYPOINTS':      traefik_ep,
+    'TRAEFIK_SSL':              'true' if is_ssl else 'false',
+    'SERVE_WELLKNOWN':          serve_wellknown,
+    'SMTP_ENABLED':             smtp_enabled,
+    'APP_SERVICE_CONFIG_FILES': app_svc_block,
+    'DEPLOY_MODE_LABEL':        f'mode {mode}',
+    'LETSENCRYPT_EMAIL':        le_email,
+})
+def replace_var(m):
+    key = m.group(1); default = m.group(2) or ''
+    return full_env.get(key, default)
+def process_template(src, dst):
+    with open(src) as f: content = f.read()
+    def strip_if_blocks(text):
+        def replacer(m):
+            var   = m.group(1)
+            block = m.group(2)
+            return block if full_env.get(var,'false').lower() == 'true' else ''
+        return re.sub(r'# \{\{IF (\w+)\}\}\n(.*?)# \{\{ENDIF\}\}\n',
+                      replacer, text, flags=re.DOTALL)
+    content = strip_if_blocks(content)
+    content = re.sub(r'\$${([A-Z_][A-Z0-9_]*)(?::-([^}]*))?}', replace_var, content)
+    Path(dst).parent.mkdir(parents=True, exist_ok=True)
+    with open(dst, 'w') as f: f.write(content)
+    ok(dst)
+print()
+info('Generating config files...\n')
+process_template('synapse/homeserver.yaml.template',        'synapse/homeserver.yaml')
+process_template('element/config.json.template',            'element/config.json')
+process_template('coturn/turnserver.conf.template',         'coturn/turnserver.conf')
+process_template('livekit/livekit.yaml.template',           'livekit/livekit.yaml')
+process_template('bridges/telegram/config.yaml.template',  'bridges/telegram/config.yaml')
+process_template('bridges/whatsapp/config.yaml.template',  'bridges/whatsapp/config.yaml')
+process_template('bridges/discord/config.yaml.template',   'bridges/discord/config.yaml')
+process_template('bridges/signal/config.yaml.template',    'bridges/signal/config.yaml')
+if en('CINNY'):
+    process_template('cinny/config.json.template', 'cinny/config.json')
+if is_traefik:
+    Path('traefik').mkdir(exist_ok=True)
+    process_template('traefik/traefik.yml.template', 'traefik/traefik.yml')
+info('\nWriting .env...\n')
+with open('.env','w') as f:
+    f.write('# Generated by make build — do not edit\n\n')
+    f.write(f'COMPOSE_FILE={compose_file}\n')
+    f.write(f'COMPOSE_PROFILES={",".join(profiles)}\n')
+    f.write(f'BIND_ADDR={bind_addr}\n')
+    f.write(f'TRAEFIK_ENTRYPOINTS={traefik_ep}\n')
+    f.write(f'TRAEFIK_TLS={traefik_tls}\n\n')
+    f.write('# From .env.override:\n')
+    with open(ENV_FILE) as src: f.write(src.read())
+ok('.env')
+MODE_LABELS = {1:'local',2:'local + Traefik',3:'server (own proxy)',4:'server + Traefik + SSL'}
+print(f'\n  {GR}{B}✓ Build complete{R}')
+print(f'  {D}Mode:     {MODE_LABELS[mode]}{R}')
+print(f'  {D}Domain:   {matrix_server_name}{R}')
+print(f'  {D}Profiles: {", ".join(profiles) if profiles else "none"}{R}')
+print(f'\n  Next: {CY}make start{R}\n')
+endef
+
+# ── Python: email wizard ──────────────────────────────────────────────────────
+define _email_py
+import os, re, sys, smtplib, ssl
+R  = '\033[0m'; B = '\033[1m'; D = '\033[2m'
+GR = '\033[32m'; YL = '\033[33m'; RD = '\033[31m'; CY = '\033[36m'
+ENV_FILE = '.env.override'
+def read_env():
+    if not os.path.exists(ENV_FILE): return {}
+    v = {}
+    with open(ENV_FILE) as f:
+        for line in f:
+            m = re.match(r'^([A-Z_]+)=(.*)$$', line.rstrip())
+            if m: v[m.group(1)] = m.group(2)
+    return v
+def write_env(key, val):
+    with open(ENV_FILE) as f: c = f.read()
+    if re.search(rf'^{key}=', c, re.M):
+        c = re.sub(rf'^{key}=.*$$', f'{key}={val}', c, flags=re.M)
+    else:
+        c += f'\n{key}={val}\n'
+    with open(ENV_FILE, 'w') as f: f.write(c)
+if not os.path.exists(ENV_FILE):
+    print(f'\n  {RD}✗{R}  {ENV_FILE} not found — run: make secrets first\n'); sys.exit(1)
+env = read_env()
+def ask(label, key, default=''):
+    cur = env.get(key,'') or default
+    hint = f' [{CY}{cur}{R}]' if cur else ''
+    try: val = input(f'  {B}{label}{R}{hint}: ').strip()
+    except (KeyboardInterrupt, EOFError): print(f'\n  {YL}Cancelled{R}\n'); sys.exit(0)
+    return val if val else cur
+print()
+smtp_host = ask('SMTP host      ', 'SMTP_HOST', 'smtp.gmail.com')
+smtp_port = ask('SMTP port      ', 'SMTP_PORT', '587')
+smtp_user = ask('SMTP username  ', 'SMTP_USER')
+smtp_pass = ask('SMTP password  ', 'SMTP_PASS')
+domain    = env.get('DOMAIN','example.com')
+smtp_from = ask('From address   ', 'SMTP_FROM', f'HyperChat <noreply@{domain}>')
+print()
+print(f'  {CY}→{R}  Testing {smtp_host}:{smtp_port}...')
+try:
+    port = int(smtp_port)
+    if port == 465:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP_SSL(smtp_host, port, context=ctx, timeout=10) as s:
+            if smtp_user and smtp_pass: s.login(smtp_user, smtp_pass)
+    else:
+        with smtplib.SMTP(smtp_host, port, timeout=10) as s:
+            s.ehlo()
+            if port == 587: s.starttls(); s.ehlo()
+            if smtp_user and smtp_pass: s.login(smtp_user, smtp_pass)
+    print(f'  {GR}✓{R}  Connection successful\n')
+    save = True
+except Exception as e:
+    print(f'  {YL}⚠{R}  Test failed: {D}{e}{R}')
+    try: save = input(f'\n  Save anyway? [y/N]: ').strip().lower() == 'y'
+    except (KeyboardInterrupt, EOFError): save = False
+    print()
+if not save:
+    print(f'  {D}Settings not saved{R}\n'); sys.exit(0)
+for key, val in [('SMTP_HOST',smtp_host),('SMTP_PORT',smtp_port),
+                 ('SMTP_USER',smtp_user),('SMTP_PASS',smtp_pass),('SMTP_FROM',smtp_from)]:
+    write_env(key, val)
+    masked = '*'*len(val) if key=='SMTP_PASS' else val
+    print(f'  {GR}✓{R}  {B}{key}{R} = {D}{masked}{R}')
+print(f'\n  {GR}{B}✓ Saved{R}  — run {CY}make build{R} to apply\n')
+endef
+
+# ── Write scripts to /tmp at Make-evaluation time ────────────────────────────
+$(file > /tmp/hc_status.py,$(_status_py))
+$(file > /tmp/hc_health.py,$(_health_py))
+$(file > /tmp/hc_secrets.py,$(_secrets_py))
+$(file > /tmp/hc_check.py,$(_check_py))
+$(file > /tmp/hc_build.py,$(_build_py))
+$(file > /tmp/hc_email.py,$(_email_py))
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  help
+# ═════════════════════════════════════════════════════════════════════════════
+
+help:
+	$(call _header,)
+	printf '  $(B)Install$(R)\n'
+	printf '    $(CY)make secrets$(R)            Generate missing secrets in .env.override\n'
+	printf '    $(CY)make check$(R)              Validate .env.override before building\n'
+	printf '    $(CY)make build$(R)              Generate all configs from .env.override\n'
+	printf '    $(CY)make email$(R)              Interactive SMTP setup wizard\n'
+	printf '\n'
+	printf '  $(B)Lifecycle$(R)\n'
+	printf '    $(CY)make start$(R)              Pull images and start all services\n'
+	printf '    $(CY)make up$(R)                 Start services (no pull)\n'
+	printf '    $(CY)make down$(R)               Stop all services\n'
+	printf '    $(CY)make restart$(R)            Restart all services\n'
+	printf '\n'
+	printf '  $(B)Updates$(R)\n'
+	printf '    $(CY)make pull$(R)               Pull latest images (no restart)\n'
+	printf '    $(CY)make upgrade$(R)            Pull + restart services with new images\n'
+	printf '\n'
+	printf '  $(B)Maintenance$(R)\n'
+	printf '    $(CY)make clear$(R)              Remove unused / dangling Docker images\n'
+	printf '    $(CY)make backup$(R)             Dump all PostgreSQL databases to ./backups/\n'
+	printf '\n'
+	printf '  $(B)Monitoring$(R)\n'
+	printf '    $(CY)make status$(R)             Service status dashboard\n'
+	printf '    $(CY)make health$(R)             Container health-check details\n'
+	printf '    $(CY)make logs$(R)               Follow logs for all services\n'
+	printf '    $(CY)make logs s=NAME$(R)        Follow logs for a specific service\n'
+	printf '\n'
+	printf '  $(B)Admin$(R)\n'
+	printf '    $(CY)make admin$(R)              Create a Matrix admin user\n'
+	printf '    $(CY)make shell s=NAME$(R)       Open a shell inside a service container\n'
+	printf '\n'
+	printf '  $(B)Local dev$(R)  $(D)(no domain · no TLS · open registration)$(R)\n'
+	printf '    $(CY)make dev$(R)                Start dev stack $(D)(Element :8080 · Synapse :8008)$(R)\n'
+	printf '    $(CY)make dev-down$(R)           Stop dev stack\n'
+	printf '    $(CY)make dev-reset$(R)          Wipe dev volumes and restart fresh\n'
+	printf '    $(CY)make dev-status$(R)         Dev service status dashboard\n'
+	printf '    $(CY)make dev-logs [s=NAME]$(R)  Follow dev stack logs\n'
+	printf '    $(CY)make dev-admin$(R)          Create admin user in dev Synapse\n'
+	printf '    $(CY)make dev-shell s=NAME$(R)   Open a shell inside a dev container\n'
+	printf '\n'
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  secrets
+# ═════════════════════════════════════════════════════════════════════════════
+
+secrets:
+	$(call _header,— secrets)
+	if ! command -v openssl &>/dev/null; then
+	  printf '  $(RD)✗$(R)  openssl not found\n\n'; exit 1
+	fi
+	python3 /tmp/hc_secrets.py
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  check
+# ═════════════════════════════════════════════════════════════════════════════
+
+check:
+	$(call _header,— check)
+	python3 /tmp/hc_check.py
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  build
+# ═════════════════════════════════════════════════════════════════════════════
+
+build:
+	$(call _header,— build)
+	python3 /tmp/hc_build.py
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  email
+# ═════════════════════════════════════════════════════════════════════════════
+
+email:
+	$(call _header,— email setup)
+	python3 /tmp/hc_email.py
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  lifecycle
+# ═════════════════════════════════════════════════════════════════════════════
+
+start:
+	$(call _header,— start)
+	if [ ! -f .env ]; then
+	  printf '  $(RD)✗$(R)  .env not found — run: make build first\n\n'; exit 1
+	fi
+	printf '  $(CY)→$(R)  Pulling latest images...\n\n'
+	$(DC) pull
+	printf '\n'
+	$(DC) up -d
+	printf '\n'
+	$(MAKE) --no-print-directory status
+
+up:
+	$(call _header,— starting)
+	if [ ! -f .env ]; then
+	  printf '  $(RD)✗$(R)  .env not found — run: make build first\n\n'; exit 1
+	fi
+	$(DC) up -d
+	printf '\n'
+	$(MAKE) --no-print-directory status
+
+down:
+	$(call _header,— stopping)
+	$(DC) down
+	printf '\n  $(D)Stack stopped.$(R)\n\n'
+
+restart:
+	$(call _header,— restarting)
+	$(DC) restart
+	printf '\n'
+	$(MAKE) --no-print-directory status
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  updates
+# ═════════════════════════════════════════════════════════════════════════════
+
+pull:
+	$(call _header,— pull)
+	printf '  $(CY)→$(R)  Pulling latest images $(D)(stack will not restart)$(R)\n\n'
+	$(DC) pull
+	printf '\n  $(GR)✓$(R)  Done — run $(CY)make upgrade$(R) to apply\n\n'
+
+upgrade:
+	$(call _header,— upgrade)
+	printf '  $(CY)→$(R)  Checking for updated images...\n\n'
+	before=$$($(DC) images -q 2>/dev/null | sort | tr '\n' ':')
+	$(DC) pull
+	printf '\n'
+	after=$$($(DC) images -q 2>/dev/null | sort | tr '\n' ':')
+	if [ "$$before" = "$$after" ]; then
+	  printf '  $(GR)✓$(R)  All images up to date — stack unchanged\n\n'
+	else
+	  printf '  $(CY)→$(R)  New images detected, restarting...\n\n'
+	  $(DC) up -d
+	  printf '\n'
+	  $(MAKE) --no-print-directory status
+	fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  maintenance
+# ═════════════════════════════════════════════════════════════════════════════
+
+clear:
+	$(call _header,— clear)
+	dangling=$$(docker images -f dangling=true -q 2>/dev/null)
+	if [ -z "$$dangling" ]; then
+	  printf '  $(GR)✓$(R)  No unused images\n\n'; exit 0
+	fi
+	count=$$(echo "$$dangling" | wc -l | tr -d ' ')
+	printf '  $(YL)⚠$(R)  %s dangling image(s) found\n\n' "$$count"
+	docker image prune -f >/dev/null
+	printf '  $(GR)✓$(R)  Removed %s image(s)\n\n' "$$count"
+
+backup:
+	$(call _header,— backup)
+	mkdir -p backups
+	TS=$$(date +%Y%m%d_%H%M%S)
+	FILE="backups/hyperchat_$${TS}.sql.gz"
+	printf '  $(CY)→$(R)  Dumping all databases...\n'
+	if $(DC) exec -T postgres pg_dumpall -U synapse 2>/dev/null | gzip > "$$FILE"; then
+	  SIZE=$$(du -sh "$$FILE" | cut -f1)
+	  printf '  $(GR)✓$(R)  $(B)%s$(R)  $(D)(%s)$(R)\n\n' "$$FILE" "$$SIZE"
+	else
+	  rm -f "$$FILE"
+	  printf '  $(RD)✗$(R)  Backup failed — is postgres running?\n\n'; exit 1
+	fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  monitoring
+# ═════════════════════════════════════════════════════════════════════════════
+
+status:
+	$(call _header,— status)
+	$(DC) ps --format json 2>/dev/null | python3 /tmp/hc_status.py
+
+health:
+	$(call _header,— health)
+	python3 /tmp/hc_health.py
+
+logs:
+	$(call _header,— logs)
+	if [ -n "$(s)" ]; then
+	  printf '  $(CY)→$(R)  Following $(B)$(s)$(R) $(D)(Ctrl-C to stop)$(R)\n\n'
+	  $(DC) logs -f --tail=100 $(s)
+	else
+	  printf '  $(CY)→$(R)  Following all services $(D)(Ctrl-C to stop)$(R)\n\n'
+	  $(DC) logs -f --tail=50
+	fi
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  admin
+# ═════════════════════════════════════════════════════════════════════════════
+
+admin:
+	$(call _header,— create admin user)
+	printf '  $(CY)→$(R)  Follow the prompts below\n\n'
+	$(DC) exec synapse register_new_matrix_user \
+	  -c /config/homeserver.yaml --admin http://localhost:8008
+	printf '\n'
+
+shell:
+	if [ -z "$(s)" ]; then
+	  printf '\n  $(RD)✗$(R)  Specify a service:  $(CY)make shell s=synapse$(R)\n\n'; exit 1
+	fi
+	$(call _header,— shell: $(s))
+	$(DC) exec $(s) sh 2>/dev/null || $(DC) exec $(s) bash
+
+# ═════════════════════════════════════════════════════════════════════════════
+#  dev stack
+# ═════════════════════════════════════════════════════════════════════════════
+
+dev:
+	$(call _header,— dev mode)
+	printf '  $(YL)⚠$(R)  $(B)Local dev stack$(R) — hardcoded passwords, open registration\n'
+	printf '  $(D)   NOT for production use$(R)\n\n'
+	$(DC_DEV) up -d
+	printf '\n'
+	$(DC_DEV) ps --format json 2>/dev/null | python3 /tmp/hc_status.py
+	printf '  $(CY)→$(R)  Element Web   $(B)http://localhost:8080$(R)\n'
+	printf '  $(CY)→$(R)  Synapse API   $(B)http://localhost:8008$(R)\n'
+	printf '  $(CY)→$(R)  Synapse Admin $(B)http://localhost:8082$(R)\n\n'
+
+dev-down:
+	$(call _header,— dev: stopping)
+	$(DC_DEV) down
+	printf '\n  $(D)Dev stack stopped.$(R)\n\n'
+
+dev-reset:
+	$(call _header,— dev: reset)
+	printf '  $(YL)⚠$(R)  Wiping dev volumes...\n\n'
+	$(DC_DEV) down -v
+	printf '  $(GR)✓$(R)  Volumes removed\n\n'
+	$(MAKE) --no-print-directory dev
+
+dev-status:
+	$(call _header,— dev: status)
+	$(DC_DEV) ps --format json 2>/dev/null | python3 /tmp/hc_status.py
+
+dev-logs:
+	$(call _header,— dev: logs)
+	if [ -n "$(s)" ]; then
+	  printf '  $(CY)→$(R)  Following $(B)$(s)$(R) $(D)(Ctrl-C to stop)$(R)\n\n'
+	  $(DC_DEV) logs -f --tail=100 $(s)
+	else
+	  printf '  $(CY)→$(R)  Following all dev services $(D)(Ctrl-C to stop)$(R)\n\n'
+	  $(DC_DEV) logs -f --tail=50
+	fi
+
+dev-admin:
+	$(call _header,— dev: create admin user)
+	printf '  $(CY)→$(R)  Follow the prompts below\n\n'
+	$(DC_DEV) exec synapse register_new_matrix_user \
+	  -c /config/homeserver.yaml --admin http://localhost:8008
+	printf '\n'
+
+dev-shell:
+	if [ -z "$(s)" ]; then
+	  printf '\n  $(RD)✗$(R)  Specify a service:  $(CY)make dev-shell s=synapse$(R)\n\n'; exit 1
+	fi
+	$(call _header,— dev shell: $(s))
+	$(DC_DEV) exec $(s) sh 2>/dev/null || $(DC_DEV) exec $(s) bash

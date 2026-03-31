@@ -1,0 +1,99 @@
+# mautrix-telegram configuration
+# Full documentation: https://docs.mau.fi/bridges/python/telegram/configuration.html
+# Placeholders are substituted by make setup from your .env file.
+
+homeserver:
+    address: http://synapse:8008
+    domain: ${DOMAIN}
+    software: standard
+    status_endpoint: ~
+    message_send_checkpoint_endpoint: ~
+    async_media: false
+
+appservice:
+    address: http://bridge-telegram:29317
+    hostname: 0.0.0.0
+    port: 29317
+    max_body_size: 1
+
+    database: postgres://mautrix_telegram:${BRIDGE_TELEGRAM_DB_PASSWORD}@postgres:5432/mautrix_telegram
+    database_opts: {}
+
+    id: telegram
+    bot:
+        username: telegrambot
+        displayname: Telegram Bridge Bot
+        avatar: mxc://maunium.net/tgswlMqlBtmNJlzVFQXBLyhS
+
+    ephemeral_events: true
+
+    as_token: ""
+    hs_token: ""
+
+# Get api_id and api_hash from https://my.telegram.org → API development tools
+telegram:
+    api_id: ${TELEGRAM_API_ID}
+    api_hash: ${TELEGRAM_API_HASH}
+    bot_token: disabled
+
+    # Connection settings
+    connection:
+        timeout: 120
+        retries: 5
+        retry_delay: 1
+        flood_sleep_threshold: 60
+        request_retries: 5
+
+bridge:
+    username_template: "telegram_{userid}"
+    displayname_template: "{displayname} (Telegram)"
+    displayname_preference:
+      - full name
+      - username
+      - phone
+
+    command_prefix: "!tg"
+
+    permissions:
+        "*": relayed
+        "${DOMAIN}": user
+        "@admin:${DOMAIN}": admin
+
+    relay:
+        enabled: true
+        message_formats:
+            m.text: "<b>{{ .Sender.Displayname }}</b>: {{ .Message }}"
+            m.notice: "<b>{{ .Sender.Displayname }}</b>: {{ .Message }}"
+            m.emote: "* <b>{{ .Sender.Displayname }}</b> {{ .Message }}"
+
+    encryption:
+        allow: true
+        default: false
+        require: false
+        allow_key_sharing: true
+        rotation:
+            enable_custom: false
+            milliseconds: 604800000
+            messages: 100
+
+    delivery_receipts: false
+    telegram_link_preview: true
+
+    # Formatting
+    base_command: "help"
+
+logging:
+    version: 1
+    formatters:
+        precise:
+            format: "%(asctime)s - %(name)s - %(lineno)d - %(levelname)s - %(message)s"
+    handlers:
+        console:
+            class: logging.StreamHandler
+            formatter: precise
+    loggers:
+        mau.crypto:
+            level: DEBUG
+    root:
+        level: INFO
+        handlers: [console]

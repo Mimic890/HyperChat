@@ -1,0 +1,44 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  LiveKit server configuration
+#  Placeholders are substituted by make setup from your .env file.
+# ─────────────────────────────────────────────────────────────────────────────
+
+port: 7880
+bind_addresses:
+  - ""  # listen on all interfaces (Caddy/Docker handle external access)
+
+rtc:
+  tcp_port: 7881
+  udp_port: 7882
+  port_range_start: 50000
+  port_range_end: 50020
+  use_external_ip: true
+
+# Integrate with Coturn for TURN relay fallback
+turn:
+  enabled: true
+  domain: ${DOMAIN}
+  tls_port: 5349
+  udp_port: 3478
+  external_tls: true
+  credential: ${TURN_SECRET}
+
+# API keys — used by Element Call to authenticate with LiveKit
+keys:
+  ${LIVEKIT_API_KEY}: ${LIVEKIT_API_SECRET}
+
+logging:
+  level: info
+  json: false
+  sample: false
+
+room:
+  auto_create: true
+  empty_timeout: 300          # seconds before empty room is cleaned up
+  departure_timeout: 20       # seconds to wait after last participant leaves
+  max_participants: 50
+
+webhook:
+  # Uncomment to send room events to an HTTP endpoint
+  # urls:
+  #   - https://your-webhook-endpoint.example.com

@@ -1,0 +1,48 @@
+{
+    "default_server_config": {
+        "m.homeserver": {
+            "base_url": "${MATRIX_BASE_URL}",
+            "server_name": "${MATRIX_SERVER_NAME}"
+        },
+        "m.identity_server": {
+            "base_url": "https://vector.im"
+        }
+    },
+
+    "brand": "${SERVER_NAME}",
+    "default_theme": "dark",
+    "show_labs_settings": true,
+
+    "features": {
+        "feature_video_rooms": true,
+        "feature_element_call_video_rooms": true,
+        "feature_group_calls": true
+    },
+
+    "element_call": {
+        "url": "https://call.element.io",
+        "use_exclusively": false,
+        "participant_limit": 8,
+        "brand": "Element Call"
+    },
+
+    "voip": {
+        "obey_asserted_identity": false
+    },
+
+    "room_directory": {
+        "servers": ["${MATRIX_SERVER_NAME}"]
+    },
+
+    "defaultDeviceDisplayName": "${SERVER_NAME} Web",
+
+    "integrations_ui_url": "",
+    "integrations_rest_url": "",
+    "integrations_widgets_urls": [],
+
+    "bug_report_endpoint_url": "",
+
+    "jitsi": {
+        "preferred_domain": ""
+    }
+}

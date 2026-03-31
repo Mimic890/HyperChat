@@ -1,0 +1,45 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Coturn TURN/STUN server configuration
+#  Placeholders are substituted by make setup from your .env file.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Network
+listening-ip=0.0.0.0
+listening-port=3478
+tls-listening-port=5349
+
+# Public IP of this server (required for TURN relay)
+external-ip=${COTURN_EXTERNAL_IP}
+
+# Realm — typically your domain
+realm=${DOMAIN}
+
+# Authentication — shared secret mode (compatible with Synapse)
+use-auth-secret
+static-auth-secret=${TURN_SECRET}
+
+# TLS certificates
+# Point these at your Let's Encrypt certs (managed by Caddy on the host).
+# Caddy stores certs at: /root/.local/share/caddy/certificates/
+# Adjust the path to match your domain and Caddy version.
+cert=/etc/coturn/tls/fullchain.pem
+pkey=/etc/coturn/tls/privkey.pem
+
+# Relay port range (must be open in firewall / security group)
+min-port=49152
+max-port=49200
+
+# Security — deny relay to RFC-1918 / loopback addresses
+no-multicast-peers
+no-software-attribute
+
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=::1
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+
+# Logging
+log-file=stdout
+verbose

@@ -1,0 +1,144 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  HyperChat — local development stack
+#
+#  Runs core services only: Postgres, Redis, Synapse, Element Web.
+#  No bridges, no Coturn, no LiveKit — designed for quick local testing.
+#
+#  Usage:
+#    make dev           # start dev stack
+#    make dev-down      # stop dev stack
+#    make dev-reset     # wipe volumes and restart fresh
+#
+#  Access after start:
+#    Element Web   →  http://localhost:8080
+#    Synapse API   →  http://localhost:8008
+#    Synapse Admin →  http://localhost:8082
+#
+#  ⚠  NOT for production — uses hardcoded passwords, open registration.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: hyperchat-dev
+
+services:
+
+  # ── Database ────────────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: devpassword
+      POSTGRES_DB: synapse
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    networks:
+      - hyperchat-dev
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Cache ───────────────────────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --loglevel warning
+    networks:
+      - hyperchat-dev
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Synapse data volume init (fixes ownership for uid 991) ──────────────────
+
+  synapse-init:
+    image: alpine
+    command: ["chown", "-R", "991:991", "/data"]
+    volumes:
+      - synapse_dev_data:/data
+    networks:
+      - hyperchat-dev
+
+  # ── Synapse homeserver ───────────────────────────────────────────────────────
+
+  synapse:
+    image: matrixdotorg/synapse:latest
+    restart: unless-stopped
+    environment:
+      SYNAPSE_CONFIG_PATH: /config/homeserver.yaml
+    volumes:
+      - ./synapse/homeserver.dev.yaml:/config/homeserver.yaml:ro
+      - ./synapse/log.config:/config/log.config:ro
+      - synapse_dev_data:/data
+    ports:
+      - "127.0.0.1:8008:8008"   # Client & Federation API
+      - "127.0.0.1:9000:9000"   # Prometheus metrics
+    networks:
+      - hyperchat-dev
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      synapse-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8008/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Element Web client ───────────────────────────────────────────────────────
+
+  element-web:
+    image: vectorim/element-web:latest
+    restart: unless-stopped
+    volumes:
+      - ./element/config.dev.json:/app/config.json:ro
+    ports:
+      - "127.0.0.1:8080:80"
+    networks:
+      - hyperchat-dev
+    depends_on:
+      synapse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80 > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Synapse Admin panel ──────────────────────────────────────────────────────
+
+  synapse-admin:
+    image: awesometechnologies/synapse-admin:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8082:80"
+    networks:
+      - hyperchat-dev
+    depends_on:
+      synapse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80 > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  postgres_dev_data:
+  synapse_dev_data:
+
+networks:
+  hyperchat-dev:
+    driver: bridge

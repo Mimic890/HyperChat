@@ -1,0 +1,265 @@
+name: hyperchat
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  Base service definitions — no port bindings here.
+#  Port bindings are added by overlays selected during `make build`:
+#    docker-compose.ports.yml    — modes 1 (local) and 3 (server, own proxy)
+#    docker-compose.traefik.yml  — modes 2 (local+Traefik) and 4 (server+Traefik)
+#
+#  Optional services are activated via Docker Compose profiles.
+#  Profiles are set in .env (COMPOSE_PROFILES) by `make build`.
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Database ─────────────────────────────────────────────────────────────────
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: synapse
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      POSTGRES_DB: synapse
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --lc-collate=C --lc-ctype=C"
+      BRIDGE_TELEGRAM_DB_PASSWORD: ${BRIDGE_TELEGRAM_DB_PASSWORD:-}
+      BRIDGE_WHATSAPP_DB_PASSWORD: ${BRIDGE_WHATSAPP_DB_PASSWORD:-}
+      BRIDGE_DISCORD_DB_PASSWORD:  ${BRIDGE_DISCORD_DB_PASSWORD:-}
+      BRIDGE_SIGNAL_DB_PASSWORD:   ${BRIDGE_SIGNAL_DB_PASSWORD:-}
+    command: >
+      postgres
+      -c shared_buffers=256MB
+      -c effective_cache_size=1GB
+      -c work_mem=16MB
+      -c maintenance_work_mem=64MB
+      -c synchronous_commit=off
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
+    networks:
+      - hyperchat
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U synapse"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # ── Cache ─────────────────────────────────────────────────────────────────────
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --save 60 1 --loglevel warning
+    volumes:
+      - redis_data:/data
+    networks:
+      - hyperchat
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ── Synapse homeserver ────────────────────────────────────────────────────────
+
+  synapse:
+    image: matrixdotorg/synapse:latest
+    restart: unless-stopped
+    environment:
+      SYNAPSE_CONFIG_PATH: /config/homeserver.yaml
+    volumes:
+      - ./synapse/homeserver.yaml:/config/homeserver.yaml:ro
+      - ./synapse/log.config:/config/log.config:ro
+      - synapse_data:/data
+      - ./bridges/telegram:/bridges/telegram:ro
+      - ./bridges/whatsapp:/bridges/whatsapp:ro
+      - ./bridges/discord:/bridges/discord:ro
+      - ./bridges/signal:/bridges/signal:ro
+    ports:
+      - "127.0.0.1:9000:9000"   # Prometheus metrics — always localhost-only
+    networks:
+      - hyperchat
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8008/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  # ── Synapse Admin ─────────────────────────────────────────────────────────────
+  # Always bound to 127.0.0.1 — never exposed publicly regardless of deploy mode.
+
+  synapse-admin:
+    image: awesometechnologies/synapse-admin:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${PORT_ADMIN:-8082}:80"
+    networks:
+      - hyperchat
+    depends_on:
+      synapse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80 > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ── Element Web ───────────────────────────────────────────────────────────────
+
+  element-web:
+    profiles: [element]
+    image: vectorim/element-web:latest
+    restart: unless-stopped
+    volumes:
+      - ./element/config.json:/app/config.json:ro
+    networks:
+      - hyperchat
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80 > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Cinny Web ─────────────────────────────────────────────────────────────────
+
+  cinny:
+    profiles: [cinny]
+    image: ghcr.io/cinnyapp/cinny:latest
+    restart: unless-stopped
+    volumes:
+      - ./cinny/config.json:/app/config.json:ro
+    networks:
+      - hyperchat
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080 > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+
+  # ── Bridges ───────────────────────────────────────────────────────────────────
+
+  bridge-telegram:
+    profiles: [bridge-telegram]
+    image: dock.mau.dev/mautrix/telegram:latest
+    restart: unless-stopped
+    volumes:
+      - ./bridges/telegram:/data
+    networks:
+      - hyperchat
+    depends_on:
+      synapse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  bridge-whatsapp:
+    profiles: [bridge-whatsapp]
+    image: dock.mau.dev/mautrix/whatsapp:latest
+    restart: unless-stopped
+    volumes:
+      - ./bridges/whatsapp:/data
+    networks:
+      - hyperchat
+    depends_on:
+      synapse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  bridge-discord:
+    profiles: [bridge-discord]
+    image: dock.mau.dev/mautrix/discord:latest
+    restart: unless-stopped
+    volumes:
+      - ./bridges/discord:/data
+    networks:
+      - hyperchat
+    depends_on:
+      synapse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  bridge-signal:
+    profiles: [bridge-signal]
+    image: dock.mau.dev/mautrix/signal:latest
+    restart: unless-stopped
+    volumes:
+      - ./bridges/signal:/data
+    networks:
+      - hyperchat
+    depends_on:
+      synapse:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+
+  # ── VoIP — Coturn ─────────────────────────────────────────────────────────────
+  # host networking required for proper TURN relay across NAT
+
+  coturn:
+    profiles: [voip]
+    image: coturn/coturn:latest
+    restart: unless-stopped
+    volumes:
+      - ./coturn/turnserver.conf:/etc/coturn/turnserver.conf:ro
+    network_mode: host
+
+  # ── VoIP — LiveKit ────────────────────────────────────────────────────────────
+
+  livekit:
+    profiles: [voip]
+    image: livekit/livekit-server:latest
+    restart: unless-stopped
+    command: --config /config/livekit.yaml
+    volumes:
+      - ./livekit/livekit.yaml:/config/livekit.yaml:ro
+    ports:
+      - "0.0.0.0:7882:7882/udp"
+      - "0.0.0.0:50000-50020:50000-50020/udp"
+    networks:
+      - hyperchat
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7880/ > /dev/null 2>&1 || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ── Sticker picker ────────────────────────────────────────────────────────────
+
+  stickerpicker:
+    profiles: [stickers]
+    image: nginx:alpine
+    restart: unless-stopped
+    volumes:
+      - ./stickerpicker:/usr/share/nginx/html:ro
+    networks:
+      - hyperchat
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:80 > /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+# ── Volumes ───────────────────────────────────────────────────────────────────
+
+volumes:
+  postgres_data:
+  redis_data:
+  synapse_data:
+
+# ── Networks ──────────────────────────────────────────────────────────────────
+
+networks:
+  hyperchat:
+    driver: bridge
