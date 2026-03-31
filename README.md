@@ -40,8 +40,8 @@
 ### 1. Clone
 
 ```bash
-git clone https://github.com/yourname/hyperchat.git
-cd hyperchat
+git clone https://github.com/Mimic890/HyperChat.git
+cd HyperChat
 ```
 
 ### 2. Configure
