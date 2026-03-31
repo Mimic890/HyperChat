@@ -122,7 +122,7 @@ import os, re, subprocess, sys, shutil
 from datetime import datetime
 R  = '\033[0m';  B  = '\033[1m';  D  = '\033[2m'
 GR = '\033[32m'; YL = '\033[33m'; RD = '\033[31m'; CY = '\033[36m'
-ENV_FILE = '.env.override'
+ENV_FILE = '.env'
 AUTO = {
     'POSTGRES_PASSWORD':           24,
     'MACAROON_SECRET_KEY':         32,
@@ -136,9 +136,9 @@ AUTO = {
     'BRIDGE_SIGNAL_DB_PASSWORD':   16,
 }
 if not os.path.exists(ENV_FILE):
-    if not os.path.exists('.env.override.example'):
+    if not os.path.exists('.env.example'):
         print(f'\n  {RD}✗{R}  {ENV_FILE} not found\n'); sys.exit(1)
-    shutil.copy('.env.override.example', ENV_FILE)
+    shutil.copy('.env.example', ENV_FILE)
     print(f'  {GR}✓{R}  Created {ENV_FILE} from example\n')
 with open(ENV_FILE) as f:
     content = f.read()
@@ -157,7 +157,7 @@ if existing:
         print(f'  {D}Only filling empty secrets{R}\n')
 os.makedirs('backups', exist_ok=True)
 ts = datetime.now().strftime('%Y%m%d_%H%M%S')
-bak = f'backups/.env.override.{ts}'
+bak = f'backups/.env.{ts}'
 shutil.copy(ENV_FILE, bak)
 print(f'  {D}backup → {bak}{R}\n')
 generated = []; kept = []
@@ -195,7 +195,7 @@ define _check_py
 import os, re, socket, sys
 R  = '\033[0m';  B  = '\033[1m';  D  = '\033[2m'
 GR = '\033[32m'; YL = '\033[33m'; RD = '\033[31m'; CY = '\033[36m'
-ENV_FILE = '.env.override'
+ENV_FILE = '.env'
 if not os.path.exists(ENV_FILE):
     print(f'\n  {RD}✗{R}  {ENV_FILE} not found — run: make secrets\n'); sys.exit(1)
 env = {}
@@ -295,7 +295,7 @@ GR = '\033[32m'; YL = '\033[33m'; RD = '\033[31m'; CY = '\033[36m'
 def die(msg): print(f'\n  {RD}✗{R}  {msg}\n'); sys.exit(1)
 def ok(msg):  print(f'  {GR}✓{R}  {msg}')
 def info(msg):print(f'  {CY}→{R}  {msg}')
-ENV_FILE = '.env.override'
+ENV_FILE = '.env'
 if not Path(ENV_FILE).exists():
     die(f'{ENV_FILE} not found — run: make secrets')
 env = {}
@@ -407,7 +407,7 @@ with open('.env','w') as f:
     f.write(f'BIND_ADDR={bind_addr}\n')
     f.write(f'TRAEFIK_ENTRYPOINTS={traefik_ep}\n')
     f.write(f'TRAEFIK_TLS={traefik_tls}\n\n')
-    f.write('# From .env.override:\n')
+    f.write('# From .env:\n')
     with open(ENV_FILE) as src: f.write(src.read())
 ok('.env')
 MODE_LABELS = {1:'local',2:'local + Traefik',3:'server (own proxy)',4:'server + Traefik + SSL'}
@@ -423,7 +423,7 @@ define _email_py
 import os, re, sys, smtplib, ssl
 R  = '\033[0m'; B = '\033[1m'; D = '\033[2m'
 GR = '\033[32m'; YL = '\033[33m'; RD = '\033[31m'; CY = '\033[36m'
-ENV_FILE = '.env.override'
+ENV_FILE = '.env'
 def read_env():
     if not os.path.exists(ENV_FILE): return {}
     v = {}
@@ -500,9 +500,9 @@ $(file > /tmp/hc_email.py,$(_email_py))
 help:
 	$(call _header,)
 	printf '  $(B)Install$(R)\n'
-	printf '    $(CY)make secrets$(R)            Generate missing secrets in .env.override\n'
-	printf '    $(CY)make check$(R)              Validate .env.override before building\n'
-	printf '    $(CY)make build$(R)              Generate all configs from .env.override\n'
+	printf '    $(CY)make secrets$(R)            Generate missing secrets in .env\n'
+	printf '    $(CY)make check$(R)              Validate .env before building\n'
+	printf '    $(CY)make build$(R)              Generate all configs from .env\n'
 	printf '    $(CY)make email$(R)              Interactive SMTP setup wizard\n'
 	printf '\n'
 	printf '  $(B)Lifecycle$(R)\n'
