@@ -63,7 +63,7 @@ Safe to re-run — never overwrites already-set values. Backs up `.env` before e
 ### 4. Apply config
 
 ```bash
-make setup
+make build
 ```
 
 Substitutes `${VARIABLE}` placeholders in all config files using your `.env`.
@@ -150,7 +150,7 @@ Run `make` with no arguments to see the full command list.
 | Command | Description |
 |---------|-------------|
 | `make secrets` | Auto-generate missing secrets in `.env` (idempotent, backs up existing) |
-| `make setup` | Substitute `.env` values into all config files |
+| `make build` | Substitute `.env` values into all config files |
 | `make up` | Start all services |
 | `make down` | Stop all services |
 | `make restart` | Restart all services |
@@ -198,7 +198,7 @@ hyperchat/
 │   ├── monitoring.md
 │   └── federation.md
 ├── synapse/
-│   ├── homeserver.yaml         # Production config (run: make setup)
+│   ├── homeserver.yaml         # Production config (run: make build)
 │   ├── homeserver.dev.yaml     # Dev config (hardcoded, open registration)
 │   └── log.config
 ├── element/
@@ -223,7 +223,7 @@ hyperchat/
 
 ## Security notice
 
-After running `make setup`, your config files contain real secrets and passwords.
+After running `make build`, your config files contain real secrets and passwords.
 Do **not** push a modified copy of this repository to a public host.
 
 ---
