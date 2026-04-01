@@ -61,6 +61,15 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Synapse data dir init (chown /data to uid 991) ───────────────────────────
+
+  synapse-init:
+    image: alpine:3
+    command: chown -R 991:991 /data
+    volumes:
+      - synapse_data:/data
+    restart: "no"
+
   # ── Synapse homeserver ────────────────────────────────────────────────────────
 
   synapse:
@@ -81,6 +90,8 @@ services:
     networks:
       - hyperchat
     depends_on:
+      synapse-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       redis:

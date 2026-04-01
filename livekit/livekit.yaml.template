@@ -21,7 +21,6 @@ turn:
   tls_port: 5349
   udp_port: 3478
   external_tls: true
-  credential: ${TURN_SECRET}
 
 # API keys — used by Element Call to authenticate with LiveKit
 keys:
