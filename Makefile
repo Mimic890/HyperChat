@@ -7,7 +7,7 @@ DC_DEV  := docker compose -f docker-compose.dev.yml
 .SILENT:
 
 .PHONY: help secrets check build email dns email-test \
-        start pull up down restart upgrade clear \
+        start pull up down restart upgrade clear monitoring \
         status health logs backup admin shell \
         prune-volumes \
         dev dev-down dev-reset dev-status dev-logs dev-admin dev-shell
@@ -815,6 +815,74 @@ except Exception as e:
     print(f'  {RD}✗{R}  Connection failed: {e}\n'); sys.exit(1)
 endef
 
+# ── Python: monitoring hints ──────────────────────────────────────────────────
+define _monitoring_py
+import re, os, sys
+R='\033[0m'; B='\033[1m'; D='\033[2m'; CY='\033[36m'; GR='\033[32m'; RD='\033[31m'; YL='\033[33m'
+ENV_FILE = '.env'
+if not os.path.exists(ENV_FILE):
+    print(f'\n  {RD}✗{R}  .env not found — run: make build first\n'); sys.exit(1)
+env = {}
+with open(ENV_FILE) as f:
+    for line in f:
+        m = re.match(r'^([A-Z_][A-Z0-9_]*)=(.*)', line.rstrip())
+        if m: env[m.group(1)] = m.group(2).strip('"\'')
+def get(k, d=''): return env.get(k, d)
+def en(k): return get(f'ENABLE_{k}', 'false').lower() == 'true'
+domain   = get('DOMAIN', 'localhost')
+host_matrix   = get('HOST_MATRIX', f'matrix.{domain}')
+host_livekit  = get('HOST_LIVEKIT', f'livekit.{domain}')
+host_mas      = get('HOST_MAS',     f'auth.{domain}')
+enabled = en('MONITORING')
+if not enabled:
+    print(f'\n  {YL}⚠{R}  ENABLE_MONITORING=false — Synapse metrics are off.')
+    print(f'  Set {B}ENABLE_MONITORING=true{R} in .env and re-run {CY}make build{R}.\n')
+    sys.exit(0)
+print(f'\n  {GR}✓{R}  Synapse metrics enabled — port {B}9000{R} (localhost only)\n')
+print(f'  {B}Prometheus scrape_configs block:{R}\n')
+print(f'  {D}# ── HyperChat ────────────────────────────────────────────{R}')
+print(f'  scrape_configs:')
+print(f'    - job_name: synapse')
+print(f'      static_configs:')
+print(f'        - targets: [\'<server_ip>:9000\']')
+print(f'      metrics_path: /_synapse/metrics')
+if en('MAS'):
+    print(f'    - job_name: mas')
+    print(f'      static_configs:')
+    print(f'        - targets: [\'<server_ip>:8083\']')
+    print(f'      metrics_path: /metrics')
+if en('VOIP'):
+    print(f'    - job_name: livekit')
+    print(f'      static_configs:')
+    print(f'        - targets: [\'<server_ip>:7880\']')
+    print(f'      metrics_path: /metrics')
+print(f'\n  {D}Replace <server_ip> with your server address.{R}')
+print(f'  {D}Or use SSH tunnel: ssh -L 9000:localhost:9000 user@{domain}{R}\n')
+print(f'  {B}Loki — ship Docker logs with Promtail:{R}\n')
+print(f'  {D}# promtail/config.yaml{R}')
+print(f'  clients:')
+print(f'    - url: http://<loki_host>:3100/loki/api/v1/push')
+print(f'  scrape_configs:')
+print(f'    - job_name: hyperchat')
+print(f'      docker_sd_configs:')
+print(f'        - host: unix:///var/run/docker.sock')
+print(f'          filters:')
+print(f'            - name: label')
+print(f'              values: [\"com.docker.compose.project=hyperchat\"]')
+print(f'      relabel_configs:')
+print(f'        - source_labels: [\'__meta_docker_container_name\']')
+print(f'          regex: \'/hyperchat-(.*)-[0-9]+\'')
+print(f'          target_label: service')
+print(f'\n  {B}Grafana — recommended dashboards (import by ID):{R}\n')
+print(f'    {CY}14105{R}  Synapse overview')
+print(f'    {CY}13697{R}  Synapse detailed')
+if en('VOIP'):
+    print(f'    {CY}search{R}  "LiveKit" on grafana.com/dashboards')
+print(f'\n  {D}Grafana data sources:{R}')
+print(f'    Prometheus  →  http://<prometheus_host>:9090')
+print(f'    Loki        →  http://<loki_host>:3100\n')
+endef
+
 # ── Write scripts to /tmp at Make-evaluation time ────────────────────────────
 $(file > /tmp/hc_status.py,$(_status_py))
 $(file > /tmp/hc_health.py,$(_health_py))
@@ -825,6 +893,7 @@ $(file > /tmp/hc_email.py,$(_email_py))
 $(file > /tmp/hc_caddy.py,$(_caddy_py))
 $(file > /tmp/hc_dns.py,$(_dns_py))
 $(file > /tmp/hc_email_check.py,$(_email_check_py))
+$(file > /tmp/hc_monitoring.py,$(_monitoring_py))
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  help
@@ -841,6 +910,7 @@ help:
 	printf '    $(CY)make dns$(R)                Check DNS records for all services\n'
 	printf '    $(CY)make email-test$(R)         Test SMTP connection\n'
 	printf '    $(CY)make email$(R)              Interactive SMTP setup wizard\n'
+	printf '    $(CY)make monitoring$(R)         Print Prometheus/Loki config snippets\n'
 	printf '\n'
 	printf '  $(B)Lifecycle$(R)\n'
 	printf '    $(CY)make start$(R)              Pull images and start all services\n'
@@ -943,6 +1013,10 @@ email-test:
 email:
 	$(call _header,— email setup)
 	python3 /tmp/hc_email.py
+
+monitoring:
+	$(call _header,— monitoring)
+	@python3 /tmp/hc_monitoring.py
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  lifecycle

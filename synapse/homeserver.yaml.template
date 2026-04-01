@@ -116,7 +116,7 @@ ${APP_SERVICE_CONFIG_FILES}
 
 # ── Metrics ───────────────────────────────────────────────────────────────────
 
-enable_metrics: true
+enable_metrics: ${ENABLE_MONITORING:-false}
 report_stats: false
 
 # ── Experimental features ─────────────────────────────────────────────────────
