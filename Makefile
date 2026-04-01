@@ -146,7 +146,6 @@ AUTO = {
     'MAS_ADMIN_TOKEN':             32,
     'MAS_ENCRYPTION_KEY':          32,
     'MAS_DB_PASSWORD':             24,
-    'MAS_HOMESERVER_SECRET':       32,
 }
 if not os.path.exists(ENV_FILE):
     if not os.path.exists('.env.example'):
@@ -166,7 +165,7 @@ if _storage_type != 'garage':
     AUTO.pop('GARAGE_RPC_SECRET', None)
 _mas_match = _re.search(r'^ENABLE_MAS=(.+)$$', content, _re.M)
 if (_mas_match.group(1).strip().lower() if _mas_match else 'false') != 'true':
-    for k in ('MAS_CLIENT_SECRET','MAS_ADMIN_TOKEN','MAS_ENCRYPTION_KEY','MAS_DB_PASSWORD','MAS_HOMESERVER_SECRET'):
+    for k in ('MAS_CLIENT_SECRET','MAS_ADMIN_TOKEN','MAS_ENCRYPTION_KEY','MAS_DB_PASSWORD'):
         AUTO.pop(k, None)
 def get_val(key):
     m = re.search(rf'^{key}=(.+)$$', content, re.M)
@@ -289,7 +288,7 @@ if mode in (2,4):
 bridge_enabled = any(get(f'ENABLE_BRIDGE_{b}','').lower()=='true'
                      for b in ('TELEGRAM','WHATSAPP','DISCORD','SIGNAL'))
 if get('ENABLE_MAS','').lower()=='true':
-    for k in ('MAS_CLIENT_SECRET','MAS_ADMIN_TOKEN','MAS_ENCRYPTION_KEY','MAS_DB_PASSWORD','MAS_HOMESERVER_SECRET'):
+    for k in ('MAS_CLIENT_SECRET','MAS_ADMIN_TOKEN','MAS_ENCRYPTION_KEY','MAS_DB_PASSWORD'):
         if not get(k): errors.append(f'{k} is required for ENABLE_MAS=true — run: make secrets')
     subdomain_mas = get('SUBDOMAIN_MAS','auth')
     if not subdomain_mas:
