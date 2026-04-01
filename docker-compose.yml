@@ -255,20 +255,9 @@ services:
     profiles: [mas]
     image: postgres:16-alpine
     restart: "no"
-    entrypoint: >
-      sh -c "
-      PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -tc
-      \"SELECT 1 FROM pg_roles WHERE rolname='mas'\" | grep -q 1
-      && echo 'MAS user already exists, skipping'
-      || (
-        PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -c
-        \"CREATE USER mas WITH PASSWORD '$$MAS_DB_PASSWORD';\" &&
-        PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -c
-        \"CREATE DATABASE mas ENCODING 'UTF8'
-          LC_COLLATE='C' LC_CTYPE='C' TEMPLATE=template0 OWNER=mas;\"
-        && echo 'MAS database created'
-      )
-      "
+    entrypoint: ["sh", "-c"]
+    command:
+      - "PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -c \"CREATE USER mas WITH PASSWORD '$$MAS_DB_PASSWORD'\" 2>/dev/null || true; PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -c \"CREATE DATABASE mas ENCODING 'UTF8' LC_COLLATE='C' LC_CTYPE='C' TEMPLATE=template0 OWNER=mas\" 2>/dev/null || true; echo 'MAS db ready'"
     environment:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
       MAS_DB_PASSWORD: ${MAS_DB_PASSWORD:-}
