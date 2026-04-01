@@ -581,8 +581,14 @@ email:
 
 start:
 	$(call _header,— start)
-	if [ ! -f .env ]; then
-	  printf '  $(RD)✗$(R)  .env not found — run: make build first\n\n'; exit 1
+	if [ ! -f .env ]; then \
+	  printf '  $(RD)✗$(R)  .env not found — run: make build first\n\n'; exit 1; \
+	fi
+	if [ -d synapse/homeserver.yaml ]; then \
+	  printf '  $(RD)✗$(R)  synapse/homeserver.yaml is a directory — run: rm -rf synapse/homeserver.yaml && make build\n\n'; exit 1; \
+	fi
+	if [ ! -f synapse/homeserver.yaml ]; then \
+	  printf '  $(RD)✗$(R)  synapse/homeserver.yaml not found — run: make build first\n\n'; exit 1; \
 	fi
 	printf '  $(CY)→$(R)  Pulling latest images...\n\n'
 	$(DC) pull
@@ -593,8 +599,14 @@ start:
 
 up:
 	$(call _header,— starting)
-	if [ ! -f .env ]; then
-	  printf '  $(RD)✗$(R)  .env not found — run: make build first\n\n'; exit 1
+	if [ ! -f .env ]; then \
+	  printf '  $(RD)✗$(R)  .env not found — run: make build first\n\n'; exit 1; \
+	fi
+	if [ -d synapse/homeserver.yaml ]; then \
+	  printf '  $(RD)✗$(R)  synapse/homeserver.yaml is a directory — run: rm -rf synapse/homeserver.yaml && make build\n\n'; exit 1; \
+	fi
+	if [ ! -f synapse/homeserver.yaml ]; then \
+	  printf '  $(RD)✗$(R)  synapse/homeserver.yaml not found — run: make build first\n\n'; exit 1; \
 	fi
 	$(DC) up -d
 	printf '\n'
