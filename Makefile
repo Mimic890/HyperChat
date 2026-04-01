@@ -9,6 +9,7 @@ DC_DEV  := docker compose -f docker-compose.dev.yml
 .PHONY: help secrets check build email dns email-test \
         start pull up down restart upgrade clear \
         status health logs backup admin shell \
+        prune-volumes \
         dev dev-down dev-reset dev-status dev-logs dev-admin dev-shell
 
 # ── ANSI codes ────────────────────────────────────────────────────────────────
@@ -816,6 +817,7 @@ help:
 	printf '    $(CY)make clear$(R)              Remove dangling Docker images\n'
 	printf '    $(CY)make prune$(R)              Remove images not used by this stack\n'
 	printf '    $(CY)make volumes$(R)            Show data volumes and their sizes\n'
+	printf '    $(CY)make prune-volumes$(R)      Remove orphaned volumes not used by any container\n'
 	printf '    $(CY)make reset$(R)              Wipe all data volumes (with confirmation)\n'
 	printf '    $(CY)make backup$(R)             Dump all PostgreSQL databases to ./backups/\n'
 	printf '\n'
@@ -1014,6 +1016,19 @@ volumes:
 	  printf '  %-30s %s\n' "$$v" "$${size:-?}"; \
 	done
 	printf '\n'
+
+prune-volumes:
+	$(call _header,— prune volumes)
+	orphans=$$(docker volume ls -f dangling=true -q | grep "^hyperchat_" 2>/dev/null)
+	if [ -z "$$orphans" ]; then
+	  printf '  $(GR)✓$(R)  No orphaned volumes found\n\n'; exit 0
+	fi
+	count=$$(echo "$$orphans" | wc -l | tr -d ' ')
+	printf '  $(YL)⚠$(R)  %s orphaned volume(s) not used by any container:\n\n' "$$count"
+	echo "$$orphans" | while read v; do printf '    $(D)%s$(R)\n' "$$v"; done
+	printf '\n  Remove them? [y/N] ' && read ans && [ "$${ans}" = y ] || { printf '\n  $(D)Cancelled$(R)\n\n'; exit 0; }
+	echo "$$orphans" | xargs docker volume rm
+	printf '\n  $(GR)✓$(R)  Removed %s volume(s)\n\n' "$$count"
 
 backup:
 	$(call _header,— backup)
