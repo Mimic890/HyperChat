@@ -45,3 +45,17 @@ psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-E
 EOSQL
 
 echo "Bridge databases created successfully."
+
+# Matrix Authentication Service (MAS) — only if MAS_DB_PASSWORD is set
+if [ -n "${MAS_DB_PASSWORD:-}" ]; then
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+    CREATE USER mas WITH PASSWORD '${MAS_DB_PASSWORD}';
+    CREATE DATABASE mas
+        ENCODING 'UTF8'
+        LC_COLLATE = 'C'
+        LC_CTYPE   = 'C'
+        TEMPLATE   = template0
+        OWNER      = mas;
+EOSQL
+echo "MAS database created."
+fi

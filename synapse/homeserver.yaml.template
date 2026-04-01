@@ -121,9 +121,25 @@ report_stats: false
 
 # ── Experimental features ─────────────────────────────────────────────────────
 
+# {{IF ENABLE_MAS}}
+# MAS delegation — Synapse defers all login/registration to MAS.
+# Users authenticate via https://${HOST_MAS}/ instead of directly with Synapse.
 experimental_features:
   msc3266_enabled: true
   msc2285_enabled: true
+  msc3861:
+    enabled: true
+    issuer: "https://${HOST_MAS}/"
+    client_id: "0000000000000000000SYNAPSE"
+    client_auth_method: client_secret_basic
+    client_secret: "${MAS_CLIENT_SECRET}"
+    admin_token: "${MAS_ADMIN_TOKEN}"
+# {{ENDIF}}
+# {{IF MAS_DISABLED}}
+experimental_features:
+  msc3266_enabled: true
+  msc2285_enabled: true
+# {{ENDIF}}
 
 # ── Rate limiting ─────────────────────────────────────────────────────────────
 

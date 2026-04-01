@@ -27,6 +27,10 @@ services:
       - "${BIND_ADDR:-127.0.0.1}:${PORT_LIVEKIT:-7880}:7880"
       - "${BIND_ADDR:-127.0.0.1}:7881:7881"
 
+  mas:
+    ports:
+      - "${BIND_ADDR:-127.0.0.1}:${PORT_MAS:-8083}:8080"
+
   stickerpicker:
     ports:
       - "${BIND_ADDR:-127.0.0.1}:${PORT_STICKERS:-8090}:80"

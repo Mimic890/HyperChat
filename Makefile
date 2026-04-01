@@ -142,6 +142,11 @@ AUTO = {
     'BRIDGE_WHATSAPP_DB_PASSWORD': 16,
     'BRIDGE_DISCORD_DB_PASSWORD':  16,
     'BRIDGE_SIGNAL_DB_PASSWORD':   16,
+    'MAS_CLIENT_SECRET':           32,
+    'MAS_ADMIN_TOKEN':             32,
+    'MAS_ENCRYPTION_KEY':          32,
+    'MAS_DB_PASSWORD':             24,
+    'MAS_HOMESERVER_SECRET':       32,
 }
 if not os.path.exists(ENV_FILE):
     if not os.path.exists('.env.example'):
@@ -159,6 +164,10 @@ if _storage_type not in ('garage', 's3'):
     AUTO.pop('S3_SECRET_KEY', None)
 if _storage_type != 'garage':
     AUTO.pop('GARAGE_RPC_SECRET', None)
+_mas_match = _re.search(r'^ENABLE_MAS=(.+)$$', content, _re.M)
+if (_mas_match.group(1).strip().lower() if _mas_match else 'false') != 'true':
+    for k in ('MAS_CLIENT_SECRET','MAS_ADMIN_TOKEN','MAS_ENCRYPTION_KEY','MAS_DB_PASSWORD','MAS_HOMESERVER_SECRET'):
+        AUTO.pop(k, None)
 def get_val(key):
     m = re.search(rf'^{key}=(.+)$$', content, re.M)
     return m.group(1).strip() if m else ''
@@ -254,7 +263,7 @@ empty_secrets = [k for k in SECRETS if not get(k)]
 if empty_secrets:
     errors.append(f'{len(empty_secrets)} secret(s) are empty — run: make secrets')
 ports_seen = {}
-PORT_KEYS = ['PORT_SYNAPSE','PORT_ELEMENT','PORT_CINNY','PORT_ADMIN','PORT_LIVEKIT','PORT_STICKERS']
+PORT_KEYS = ['PORT_SYNAPSE','PORT_ELEMENT','PORT_CINNY','PORT_ADMIN','PORT_LIVEKIT','PORT_STICKERS','PORT_MAS']
 for pk in PORT_KEYS:
     v = get(pk)
     if v:
@@ -279,6 +288,12 @@ if mode in (2,4):
             pass
 bridge_enabled = any(get(f'ENABLE_BRIDGE_{b}','').lower()=='true'
                      for b in ('TELEGRAM','WHATSAPP','DISCORD','SIGNAL'))
+if get('ENABLE_MAS','').lower()=='true':
+    for k in ('MAS_CLIENT_SECRET','MAS_ADMIN_TOKEN','MAS_ENCRYPTION_KEY','MAS_DB_PASSWORD','MAS_HOMESERVER_SECRET'):
+        if not get(k): errors.append(f'{k} is required for ENABLE_MAS=true — run: make secrets')
+    subdomain_mas = get('SUBDOMAIN_MAS','auth')
+    if not subdomain_mas:
+        errors.append('SUBDOMAIN_MAS must not be empty when ENABLE_MAS=true')
 if get('ENABLE_BRIDGE_TELEGRAM','').lower()=='true' and not get('TELEGRAM_API_ID'):
     warnings.append('TELEGRAM_API_ID is empty — bridge will not work without it')
 if get('ENABLE_BRIDGE_TELEGRAM','').lower()=='true' and not get('TELEGRAM_API_HASH'):
@@ -339,6 +354,7 @@ host_element  = _make_host(get('SUBDOMAIN_ELEMENT',  ''),         domain)
 host_cinny    = _make_host(get('SUBDOMAIN_CINNY',    'cinny'),    domain)
 host_livekit  = _make_host(get('SUBDOMAIN_LIVEKIT',  'livekit'),  domain)
 host_stickers = _make_host(get('SUBDOMAIN_STICKERS', 'stickers'), domain)
+host_mas      = _make_host(get('SUBDOMAIN_MAS',      'auth'),     domain)
 is_server  = mode in (3,4)
 is_traefik = mode in (2,4)
 is_ssl     = mode == 4
@@ -367,6 +383,7 @@ if en('BRIDGE_WHATSAPP'): profiles.append('bridge-whatsapp')
 if en('BRIDGE_DISCORD'):  profiles.append('bridge-discord')
 if en('BRIDGE_SIGNAL'):   profiles.append('bridge-signal')
 if en('STICKERS'):        profiles.append('stickers')
+if en('MAS'):             profiles.append('mas')
 if is_traefik:
     compose_file = 'docker-compose.yml:docker-compose.traefik.yml'
 else:
@@ -381,6 +398,9 @@ if has_bridges:
 else:
     app_svc_block = '# app_service_config_files: []  # no bridges enabled'
 smtp_enabled = 'true' if (get('ENABLE_EMAIL','false').lower()=='true' and get('SMTP_HOST')) else 'false'
+smtp_disabled = 'false' if smtp_enabled == 'true' else 'true'
+mas_disabled  = 'false' if en('MAS') else 'true'
+element_call_url = f'https://{host_livekit}' if en('VOIP') else 'https://call.element.io'
 storage_type = get('STORAGE_TYPE', 'volumes').lower()
 data_path    = get('DATA_PATH', '').rstrip('/')
 s3_enabled   = 'true' if storage_type in ('s3', 'garage') else 'false'
@@ -411,6 +431,10 @@ full_env.update({
     'HOST_CINNY':               host_cinny,
     'HOST_LIVEKIT':             host_livekit,
     'HOST_STICKERS':            host_stickers,
+    'HOST_MAS':                 host_mas,
+    'SMTP_DISABLED':            smtp_disabled,
+    'MAS_DISABLED':             mas_disabled,
+    'ELEMENT_CALL_URL':         element_call_url,
 })
 if storage_type == 'garage':
     profiles.append('garage')
@@ -450,6 +474,8 @@ if is_traefik:
     process_template('traefik/traefik.yml.template', 'traefik/traefik.yml')
 if storage_type == 'garage':
     process_template('garage/garage.toml.template', 'garage/garage.toml')
+if en('MAS'):
+    process_template('mas/config.yaml.template', 'mas/config.yaml')
 # ── Storage override ──────────────────────────────────────────────────────────
 storage_compose = None
 if storage_type == 'local':
@@ -488,7 +514,9 @@ with open('.env','w') as f:
     f.write(f'HOST_ELEMENT={host_element}\n')
     f.write(f'HOST_CINNY={host_cinny}\n')
     f.write(f'HOST_LIVEKIT={host_livekit}\n')
-    f.write(f'HOST_STICKERS={host_stickers}\n\n')
+    f.write(f'HOST_STICKERS={host_stickers}\n')
+    f.write(f'HOST_MAS={host_mas}\n')
+    f.write(f'ELEMENT_CALL_URL={element_call_url}\n\n')
     f.write('# From .env:\n')
     f.write(original_env)
 ok('.env')
@@ -588,12 +616,14 @@ host_element  = get('HOST_ELEMENT')  or _host('SUBDOMAIN_ELEMENT',  '',         
 host_cinny    = get('HOST_CINNY')    or _host('SUBDOMAIN_CINNY',    'cinny',    domain)
 host_livekit  = get('HOST_LIVEKIT')  or _host('SUBDOMAIN_LIVEKIT',  'livekit',  domain)
 host_stickers = get('HOST_STICKERS') or _host('SUBDOMAIN_STICKERS', 'stickers', domain)
+host_mas      = get('HOST_MAS')      or _host('SUBDOMAIN_MAS',      'auth',     domain)
 port_synapse  = get('PORT_SYNAPSE',  '8008')
 port_element  = get('PORT_ELEMENT',  '8080')
 port_cinny    = get('PORT_CINNY',    '8081')
 port_admin    = get('PORT_ADMIN',    '8082')
 port_livekit  = get('PORT_LIVEKIT',  '7880')
 port_stickers = get('PORT_STICKERS', '8090')
+port_mas      = get('PORT_MAS',      '8083')
 en = lambda k: get(f'ENABLE_{k}', 'false').lower() == 'true'
 if mode in (2, 4):
     print(f'\n  {YL}⚠{R}  DEPLOY_MODE={mode} uses Traefik — Caddy config not needed.\n')
@@ -656,6 +686,12 @@ if en('STICKERS'):
     lines.append(f'    reverse_proxy localhost:{port_stickers}')
     lines.append(f'}}')
     lines.append(f'')
+if en('MAS'):
+    lines.append(f'# Matrix Authentication Service (QR login, OIDC)')
+    lines.append(f'{host_mas} {{')
+    lines.append(f'    reverse_proxy localhost:{port_mas}')
+    lines.append(f'}}')
+    lines.append(f'')
 lines.append(f'# Synapse Admin — protected, localhost only (bind: 127.0.0.1:{port_admin})')
 lines.append(f'# Access via SSH tunnel: ssh -L {port_admin}:localhost:{port_admin} user@{domain}')
 lines.append(f'# Then open: http://localhost:{port_admin}')
@@ -672,6 +708,7 @@ if host_element != host_matrix: needed.append(host_element)
 if en('CINNY'):    needed.append(host_cinny)
 if en('VOIP'):     needed.append(host_livekit)
 if en('STICKERS'): needed.append(host_stickers)
+if en('MAS'):      needed.append(host_mas)
 for r in needed:
     print(f'    {CY}{r}{R}  →  <your server IP>')
 print()
@@ -699,6 +736,7 @@ host_element  = get('HOST_ELEMENT')  or _host('SUBDOMAIN_ELEMENT',  '',         
 host_cinny    = get('HOST_CINNY')    or _host('SUBDOMAIN_CINNY',    'cinny',    domain)
 host_livekit  = get('HOST_LIVEKIT')  or _host('SUBDOMAIN_LIVEKIT',  'livekit',  domain)
 host_stickers = get('HOST_STICKERS') or _host('SUBDOMAIN_STICKERS', 'stickers', domain)
+host_mas      = get('HOST_MAS')      or _host('SUBDOMAIN_MAS',      'auth',     domain)
 if mode == 1:
     print(f'\n  {YL}⚠{R}  DEPLOY_MODE=1 (local) — DNS check not applicable.\n'); sys.exit(0)
 if not domain or domain == 'localhost':
@@ -715,6 +753,7 @@ if host_element != host_matrix: hosts.append(host_element)
 if en('CINNY'):    hosts.append(host_cinny)
 if en('VOIP'):     hosts.append(host_livekit)
 if en('STICKERS'): hosts.append(host_stickers)
+if en('MAS'):      hosts.append(host_mas)
 col = max(len(h) for h in hosts) + 2
 print(f'  {B}{"Host":<{col}}{R}  {"Resolved IP":<16}  Status')
 print(f'  {"─"*col}  {"─"*16}  {"─"*10}')

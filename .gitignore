@@ -11,6 +11,9 @@ bridges/whatsapp/config.yaml
 bridges/discord/config.yaml
 bridges/signal/config.yaml
 traefik/traefik.yml
+mas/config.yaml
+garage/garage.toml
+docker-compose.storage.yml
 
 # ── Secrets & user config — contains passwords (never commit) ─────────────────
 # .env.override is intentionally NOT ignored — it's the template users fill in.

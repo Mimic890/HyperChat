@@ -70,6 +70,15 @@ services:
       traefik.http.routers.livekit.tls.certresolver: "letsencrypt"
       traefik.http.services.livekit.loadbalancer.server.port: "7880"
 
+  mas:
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.mas.rule: "Host(`${HOST_MAS}`)"
+      traefik.http.routers.mas.entrypoints: "${TRAEFIK_ENTRYPOINTS:-web}"
+      traefik.http.routers.mas.tls: "${TRAEFIK_TLS:-false}"
+      traefik.http.routers.mas.tls.certresolver: "letsencrypt"
+      traefik.http.services.mas.loadbalancer.server.port: "8080"
+
   stickerpicker:
     labels:
       traefik.enable: "true"

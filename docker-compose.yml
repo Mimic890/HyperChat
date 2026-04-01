@@ -26,6 +26,7 @@ services:
       BRIDGE_WHATSAPP_DB_PASSWORD: ${BRIDGE_WHATSAPP_DB_PASSWORD:-}
       BRIDGE_DISCORD_DB_PASSWORD:  ${BRIDGE_DISCORD_DB_PASSWORD:-}
       BRIDGE_SIGNAL_DB_PASSWORD:   ${BRIDGE_SIGNAL_DB_PASSWORD:-}
+      MAS_DB_PASSWORD:             ${MAS_DB_PASSWORD:-}
     command: >
       postgres
       -c shared_buffers=256MB
@@ -245,6 +246,46 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+
+  # ── Matrix Authentication Service (MAS) ──────────────────────────────────────
+  # Provides QR code login, OIDC/OAuth2, and modern auth for Element X.
+  # Requires ENABLE_MAS=true and a dedicated subdomain (SUBDOMAIN_MAS=auth).
+
+  mas-init:
+    profiles: [mas]
+    image: ghcr.io/element-hq/matrix-authentication-service:latest
+    restart: "no"
+    command: database migrate
+    volumes:
+      - ./mas/config.yaml:/config/config.yaml:ro
+    networks:
+      - hyperchat
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  mas:
+    profiles: [mas]
+    image: ghcr.io/element-hq/matrix-authentication-service:latest
+    restart: unless-stopped
+    command: server
+    volumes:
+      - ./mas/config.yaml:/config/config.yaml:ro
+    networks:
+      - hyperchat
+    depends_on:
+      mas-init:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      synapse:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health > /dev/null 2>&1 || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
 
   # ── Sticker picker ────────────────────────────────────────────────────────────
 
