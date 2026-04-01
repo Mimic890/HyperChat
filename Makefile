@@ -6,7 +6,7 @@ DC_DEV  := docker compose -f docker-compose.dev.yml
 .ONESHELL:
 .SILENT:
 
-.PHONY: help secrets check build email \
+.PHONY: help secrets check build email dns email-test \
         start pull up down restart upgrade update clear \
         status health logs backup admin shell \
         dev dev-down dev-reset dev-status dev-logs dev-admin dev-shell
@@ -45,17 +45,22 @@ for line in raw.split('\n'):
 if not services:
     print(f'\n  {YL}No services running.{R}\n')
     sys.exit(0)
+services = [s for s in services if not (s.get('Service') or s.get('Name','')).endswith('-init')]
+services = [s for s in services if not (s.get('Service') or s.get('Name','')).endswith('-init')]
 services.sort(key=lambda s: s.get('Service') or s.get('Name', ''))
+if not services:
+    print(f'\n  {YL}No services running.{R}\n')
+    sys.exit(0)
 col_n = max(max(len(s.get('Service') or s.get('Name', ''))      for s in services), len('Service')) + 1
 col_s = max(max(len(s.get('State', '') or '')                   for s in services), len('State'))   + 1
 col_h = max(max(len(s.get('Health', '') or '—')                 for s in services), len('Health'))  + 1
 col_u = max(max(len(s.get('RunningFor', '') or '—')             for s in services), len('Uptime'))  + 1
 def hline(l, mc, r):
-    return (f'  {CY}{l}{"─"*(col_n+3)}{mc}{"─"*(col_s+2)}'
+    return (f'  {CY}{l}{"─"*(col_n+4)}{mc}{"─"*(col_s+2)}'
             f'{mc}{"─"*(col_h+2)}{mc}{"─"*(col_u+2)}{r}{R}')
 print()
 print(hline('╭','┬','╮'))
-print(f'  {CY}│{R}  {B}{"Service":<{col_n}}{R} '
+print(f'  {CY}│{R}   {B}{"Service":<{col_n}}{R} '
       f'{CY}│{R} {D}{"State":<{col_s}}{R} '
       f'{CY}│{R} {D}{"Health":<{col_h}}{R} '
       f'{CY}│{R} {D}{"Uptime":<{col_u}}{R} {CY}│{R}')
@@ -130,11 +135,23 @@ AUTO = {
     'REGISTRATION_SHARED_SECRET':  32,
     'TURN_SECRET':                 32,
     'LIVEKIT_API_SECRET':          32,
+    'GARAGE_RPC_SECRET':           32,
+    'S3_ACCESS_KEY':               16,
+    'S3_SECRET_KEY':               32,
     'BRIDGE_TELEGRAM_DB_PASSWORD': 16,
     'BRIDGE_WHATSAPP_DB_PASSWORD': 16,
     'BRIDGE_DISCORD_DB_PASSWORD':  16,
     'BRIDGE_SIGNAL_DB_PASSWORD':   16,
 }
+# Only generate garage/s3 keys if those storage types are configured
+import re as _re
+_content_peek = open(ENV_FILE).read()
+_st_match = _re.search(r'^STORAGE_TYPE=(.+)$$', _content_peek, _re.M)
+_storage_type = (_st_match.group(1).strip().lower() if _st_match else 'volumes')
+if _storage_type not in ('garage', 's3'):
+    AUTO.pop('GARAGE_RPC_SECRET', None)
+    AUTO.pop('S3_ACCESS_KEY', None)
+    AUTO.pop('S3_SECRET_KEY', None)
 if not os.path.exists(ENV_FILE):
     if not os.path.exists('.env.example'):
         print(f'\n  {RD}✗{R}  {ENV_FILE} not found\n'); sys.exit(1)
@@ -227,6 +244,10 @@ SECRETS = ['POSTGRES_PASSWORD','MACAROON_SECRET_KEY','FORM_SECRET',
            'REGISTRATION_SHARED_SECRET','TURN_SECRET','LIVEKIT_API_SECRET',
            'BRIDGE_TELEGRAM_DB_PASSWORD','BRIDGE_WHATSAPP_DB_PASSWORD',
            'BRIDGE_DISCORD_DB_PASSWORD','BRIDGE_SIGNAL_DB_PASSWORD']
+storage_type_check = get('STORAGE_TYPE','volumes').lower()
+if storage_type_check in ('garage','s3'):
+    for k in ['S3_ACCESS_KEY','S3_SECRET_KEY','GARAGE_RPC_SECRET']:
+        if not get(k): errors.append(f'{k} is required for STORAGE_TYPE={storage_type_check} — run: make secrets')
 empty_secrets = [k for k in SECRETS if not get(k)]
 if empty_secrets:
     errors.append(f'{len(empty_secrets)} secret(s) are empty — run: make secrets')
@@ -351,13 +372,17 @@ if has_bridges:
     app_svc_block = '\n'.join(bridge_entries)
 else:
     app_svc_block = '# app_service_config_files: []  # no bridges enabled'
-smtp_enabled = 'true' if get('SMTP_HOST') else 'false'
+smtp_enabled = 'true' if (get('ENABLE_EMAIL','false').lower()=='true' and get('SMTP_HOST')) else 'false'
 storage_type = get('STORAGE_TYPE', 'volumes').lower()
 data_path    = get('DATA_PATH', '').rstrip('/')
-s3_enabled   = 'true' if storage_type == 's3' else 'false'
-# Validate local storage
+s3_enabled   = 'true' if storage_type in ('s3', 'garage') else 'false'
+# Validate storage config
 if storage_type == 'local' and not data_path:
     die('STORAGE_TYPE=local requires DATA_PATH to be set (absolute path)')
+if storage_type == 's3' and not get('S3_BUCKET'):
+    die('STORAGE_TYPE=s3 requires S3_BUCKET to be set')
+if storage_type == 'garage' and not get('S3_BUCKET'):
+    die('STORAGE_TYPE=garage requires S3_BUCKET to be set (bucket name)')
 full_env = dict(env)
 full_env.update({
     'MATRIX_SERVER_NAME':       matrix_server_name,
@@ -374,6 +399,10 @@ full_env.update({
     'LETSENCRYPT_EMAIL':        le_email,
     'ENABLE_S3':                s3_enabled,
 })
+if storage_type == 'garage':
+    profiles.append('garage')
+    full_env['S3_ENDPOINT'] = 'http://garage:3900'
+    full_env['S3_REGION'] = get('S3_REGION', 'garage')
 def replace_var(m):
     key = m.group(1); default = m.group(2) or ''
     return full_env.get(key, default)
@@ -406,6 +435,8 @@ if en('CINNY'):
 if is_traefik:
     Path('traefik').mkdir(exist_ok=True)
     process_template('traefik/traefik.yml.template', 'traefik/traefik.yml')
+if storage_type == 'garage':
+    process_template('garage/garage.toml.template', 'garage/garage.toml')
 # ── Storage override ──────────────────────────────────────────────────────────
 storage_compose = None
 if storage_type == 'local':
@@ -422,11 +453,13 @@ if storage_type == 'local':
     ok(storage_compose)
     info(f'Storage: bind-mount → {data_path}\n')
 elif storage_type == 's3':
-    info('Storage: S3 media store enabled\n')
+    info(f'Storage: remote S3 — bucket {get("S3_BUCKET")}\n')
+elif storage_type == 'garage':
+    info(f'Storage: Garage local S3 — bucket {get("S3_BUCKET")}\n')
 elif storage_type == 'volumes':
     pass
 else:
-    die(f'Unknown STORAGE_TYPE={storage_type}. Use: volumes, local, s3')
+    die(f'Unknown STORAGE_TYPE={storage_type}. Use: volumes, local, s3, garage')
 if storage_compose:
     compose_file = f'{compose_file}:{storage_compose}'
 info('\nWriting .env...\n')
@@ -620,6 +653,99 @@ for r in needed:
 print()
 endef
 
+# ── Python: DNS checker ───────────────────────────────────────────────────────
+define _dns_py
+import re, socket, sys, urllib.request
+R='\033[0m'; B='\033[1m'; D='\033[2m'; CY='\033[36m'; GR='\033[32m'; RD='\033[31m'; YL='\033[33m'
+ENV_FILE = '.env'
+if not __import__('os').path.exists(ENV_FILE):
+    print(f'\n  {RD}✗{R}  .env not found — run: make build first\n'); sys.exit(1)
+env = {}
+with open(ENV_FILE) as f:
+    for line in f:
+        m = re.match(r'^([A-Z_][A-Z0-9_]*)=(.*)', line.rstrip())
+        if m: env[m.group(1)] = m.group(2).strip('"\'')
+def get(k, d=''): return env.get(k, d)
+mode = int(get('DEPLOY_MODE', '1'))
+domain = get('DOMAIN', '')
+en = lambda k: get(f'ENABLE_{k}', 'false').lower() == 'true'
+if mode == 1:
+    print(f'\n  {YL}⚠{R}  DEPLOY_MODE=1 (local) — DNS check not applicable.\n'); sys.exit(0)
+if not domain or domain == 'localhost':
+    print(f'\n  {RD}✗{R}  DOMAIN is not set.\n'); sys.exit(1)
+print(f'\n  {CY}→{R}  Getting server public IP...')
+try:
+    server_ip = urllib.request.urlopen('https://api.ipify.org', timeout=5).read().decode().strip()
+    print(f'  {D}Server IP: {server_ip}{R}\n')
+except Exception as e:
+    server_ip = None
+    print(f'  {YL}⚠{R}  Could not detect server IP ({e}) — will show resolved IPs only\n')
+hosts = [f'matrix.{domain}']
+if en('ELEMENT'): hosts.append(domain)
+if en('CINNY'):   hosts.append(f'cinny.{domain}')
+if en('VOIP'):    hosts.append(f'livekit.{domain}')
+if en('STICKERS'): hosts.append(f'stickers.{domain}')
+col = max(len(h) for h in hosts) + 2
+print(f'  {B}{"Host":<{col}}{R}  {"Resolved IP":<16}  Status')
+print(f'  {"─"*col}  {"─"*16}  {"─"*10}')
+ok_count = 0; fail_count = 0
+for host in hosts:
+    try:
+        resolved = socket.gethostbyname(host)
+        if server_ip and resolved == server_ip:
+            status = f'{GR}✓ ok{R}'; ok_count += 1
+        elif server_ip:
+            status = f'{RD}✗ wrong IP{R}'; fail_count += 1
+        else:
+            status = f'{YL}? unknown{R}'
+    except socket.gaierror:
+        resolved = 'NXDOMAIN'; status = f'{RD}✗ not found{R}'; fail_count += 1
+    print(f'  {B}{host:<{col}}{R}  {resolved:<16}  {status}')
+print()
+if fail_count:
+    print(f'  {RD}✗{R}  {fail_count} record(s) not pointing to this server')
+    print(f'  {D}Add DNS A records for the hosts above pointing to {server_ip or "your server IP"}{R}\n')
+else:
+    print(f'  {GR}✓{R}  All DNS records look good\n')
+endef
+
+# ── Python: email connection test ─────────────────────────────────────────────
+define _email_check_py
+import re, smtplib, ssl, sys, os
+R='\033[0m'; B='\033[1m'; D='\033[2m'; CY='\033[36m'; GR='\033[32m'; RD='\033[31m'; YL='\033[33m'
+ENV_FILE = '.env'
+if not os.path.exists(ENV_FILE):
+    print(f'\n  {RD}✗{R}  .env not found — run: make build first\n'); sys.exit(1)
+env = {}
+with open(ENV_FILE) as f:
+    for line in f:
+        m = re.match(r'^([A-Z_][A-Z0-9_]*)=(.*)', line.rstrip())
+        if m: env[m.group(1)] = m.group(2).strip('"\'')
+def get(k, d=''): return env.get(k, d)
+if get('ENABLE_EMAIL','false').lower() != 'true':
+    print(f'\n  {YL}⚠{R}  ENABLE_EMAIL=false — email is disabled.\n  Set ENABLE_EMAIL=true and configure SMTP settings.\n'); sys.exit(0)
+host = get('SMTP_HOST')
+port = int(get('SMTP_PORT', '587'))
+user = get('SMTP_USER')
+pwd  = get('SMTP_PASS')
+if not host:
+    print(f'\n  {RD}✗{R}  SMTP_HOST is not set\n'); sys.exit(1)
+print(f'\n  {CY}→{R}  Testing {host}:{port}...')
+try:
+    if port == 465:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP_SSL(host, port, context=ctx, timeout=10) as s:
+            if user and pwd: s.login(user, pwd)
+    else:
+        with smtplib.SMTP(host, port, timeout=10) as s:
+            s.ehlo()
+            if port == 587: s.starttls(); s.ehlo()
+            if user and pwd: s.login(user, pwd)
+    print(f'  {GR}✓{R}  Connection successful — {host}:{port}\n')
+except Exception as e:
+    print(f'  {RD}✗{R}  Connection failed: {e}\n'); sys.exit(1)
+endef
+
 # ── Write scripts to /tmp at Make-evaluation time ────────────────────────────
 $(file > /tmp/hc_status.py,$(_status_py))
 $(file > /tmp/hc_health.py,$(_health_py))
@@ -628,6 +754,8 @@ $(file > /tmp/hc_check.py,$(_check_py))
 $(file > /tmp/hc_build.py,$(_build_py))
 $(file > /tmp/hc_email.py,$(_email_py))
 $(file > /tmp/hc_caddy.py,$(_caddy_py))
+$(file > /tmp/hc_dns.py,$(_dns_py))
+$(file > /tmp/hc_email_check.py,$(_email_check_py))
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  help
@@ -641,6 +769,8 @@ help:
 	printf '    $(CY)make build$(R)              Generate all configs from .env\n'
 	printf '    $(CY)make caddy$(R)              Print ready-to-paste Caddyfile blocks\n'
 	printf '    $(CY)make storage$(R)            Show current storage configuration\n'
+	printf '    $(CY)make dns$(R)                Check DNS records for all services\n'
+	printf '    $(CY)make email-test$(R)         Test SMTP connection\n'
 	printf '    $(CY)make email$(R)              Interactive SMTP setup wizard\n'
 	printf '\n'
 	printf '  $(B)Lifecycle$(R)\n'
@@ -730,6 +860,14 @@ t=='s3'    and print(f'  \033[1mS3 bucket:\033[0m     {env.get(\"S3_BUCKET\",\"(
 t=='s3'    and print(f'  \033[1mS3 endpoint:\033[0m   {env.get(\"S3_ENDPOINT\",\"(default AWS)\")}'); \
 print() \
 "
+
+dns:
+	$(call _header,— dns check)
+	@python3 /tmp/hc_dns.py
+
+email-test:
+	$(call _header,— email test)
+	@python3 /tmp/hc_email_check.py
 
 email:
 	$(call _header,— email setup)
