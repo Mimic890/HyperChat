@@ -69,9 +69,23 @@ Minimum required settings:
 
 ```ini
 DEPLOY_MODE=3        # server with your own reverse proxy (Caddy)
-DOMAIN=example.com   # your domain — no https:// or trailing slash
+DOMAIN=hyperchat.ru  # your domain — no https:// or trailing slash
 SERVER_NAME=chat     # short label for the Matrix server name
 ```
+
+By default these subdomains are used:
+
+| Setting | Default | Result |
+|---------|---------|--------|
+| `SUBDOMAIN_MATRIX=matrix` | `matrix` | `matrix.hyperchat.ru` — Synapse API |
+| `SUBDOMAIN_ELEMENT=` | *(empty)* | `hyperchat.ru` — Element Web (root domain) |
+| `SUBDOMAIN_CINNY=cinny` | `cinny` | `cinny.hyperchat.ru` |
+| `SUBDOMAIN_LIVEKIT=livekit` | `livekit` | `livekit.hyperchat.ru` |
+| `SUBDOMAIN_STICKERS=stickers` | `stickers` | `stickers.hyperchat.ru` |
+
+Leave `SUBDOMAIN_ELEMENT` empty to serve Element at the root domain (recommended).
+Set any subdomain to a custom value — `make build` computes the full hostnames and propagates
+them through Caddyfile generation, DNS checks, and Traefik routing automatically.
 
 Enable optional services by setting `ENABLE_*=true`. See `.env.example` for all options.
 
@@ -283,7 +297,7 @@ HyperChat/
 ├── docker-compose.yml              # Base stack definition
 ├── docker-compose.dev.yml          # Local dev stack
 ├── docker-compose.ports.yml        # Port bindings overlay (modes 1 and 3)
-├── docker-compose.traefik.yml      # Traefik routing overlay (modes 2 and 4)
+├── docker-compose.traefik.yml      # Traefik routing overlay — uses HOST_* vars from .env
 ├── .env.example                    # Config template — copy to .env
 ├── Makefile
 ├── synapse/

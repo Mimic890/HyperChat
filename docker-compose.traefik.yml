@@ -37,7 +37,7 @@ services:
   synapse:
     labels:
       traefik.enable: "true"
-      traefik.http.routers.synapse.rule: "Host(`matrix.${DOMAIN}`)"
+      traefik.http.routers.synapse.rule: "Host(`${HOST_MATRIX}`)"
       traefik.http.routers.synapse.entrypoints: "${TRAEFIK_ENTRYPOINTS:-web}"
       traefik.http.routers.synapse.tls: "${TRAEFIK_TLS:-false}"
       traefik.http.routers.synapse.tls.certresolver: "letsencrypt"
@@ -46,7 +46,7 @@ services:
   element-web:
     labels:
       traefik.enable: "true"
-      traefik.http.routers.element.rule: "Host(`element.${DOMAIN}`)"
+      traefik.http.routers.element.rule: "Host(`${HOST_ELEMENT}`)"
       traefik.http.routers.element.entrypoints: "${TRAEFIK_ENTRYPOINTS:-web}"
       traefik.http.routers.element.tls: "${TRAEFIK_TLS:-false}"
       traefik.http.routers.element.tls.certresolver: "letsencrypt"
@@ -55,7 +55,7 @@ services:
   cinny:
     labels:
       traefik.enable: "true"
-      traefik.http.routers.cinny.rule: "Host(`cinny.${DOMAIN}`)"
+      traefik.http.routers.cinny.rule: "Host(`${HOST_CINNY}`)"
       traefik.http.routers.cinny.entrypoints: "${TRAEFIK_ENTRYPOINTS:-web}"
       traefik.http.routers.cinny.tls: "${TRAEFIK_TLS:-false}"
       traefik.http.routers.cinny.tls.certresolver: "letsencrypt"
@@ -64,7 +64,7 @@ services:
   livekit:
     labels:
       traefik.enable: "true"
-      traefik.http.routers.livekit.rule: "Host(`livekit.${DOMAIN}`)"
+      traefik.http.routers.livekit.rule: "Host(`${HOST_LIVEKIT}`)"
       traefik.http.routers.livekit.entrypoints: "${TRAEFIK_ENTRYPOINTS:-web}"
       traefik.http.routers.livekit.tls: "${TRAEFIK_TLS:-false}"
       traefik.http.routers.livekit.tls.certresolver: "letsencrypt"
@@ -73,7 +73,7 @@ services:
   stickerpicker:
     labels:
       traefik.enable: "true"
-      traefik.http.routers.stickers.rule: "Host(`stickers.${DOMAIN}`)"
+      traefik.http.routers.stickers.rule: "Host(`${HOST_STICKERS}`)"
       traefik.http.routers.stickers.entrypoints: "${TRAEFIK_ENTRYPOINTS:-web}"
       traefik.http.routers.stickers.tls: "${TRAEFIK_TLS:-false}"
       traefik.http.routers.stickers.tls.certresolver: "letsencrypt"
