@@ -7,7 +7,7 @@ DC_DEV  := docker compose -f docker-compose.dev.yml
 .SILENT:
 
 .PHONY: help secrets check build email dns email-test \
-        start pull up down restart upgrade update clear \
+        start pull up down restart upgrade clear \
         status health logs backup admin shell \
         dev dev-down dev-reset dev-status dev-logs dev-admin dev-shell
 
@@ -45,7 +45,6 @@ for line in raw.split('\n'):
 if not services:
     print(f'\n  {YL}No services running.{R}\n')
     sys.exit(0)
-services = [s for s in services if not (s.get('Service') or s.get('Name','')).endswith('-init')]
 services = [s for s in services if not (s.get('Service') or s.get('Name','')).endswith('-init')]
 services.sort(key=lambda s: s.get('Service') or s.get('Name', ''))
 if not services:
@@ -143,15 +142,6 @@ AUTO = {
     'BRIDGE_DISCORD_DB_PASSWORD':  16,
     'BRIDGE_SIGNAL_DB_PASSWORD':   16,
 }
-# Only generate garage/s3 keys if those storage types are configured
-import re as _re
-_content_peek = open(ENV_FILE).read()
-_st_match = _re.search(r'^STORAGE_TYPE=(.+)$$', _content_peek, _re.M)
-_storage_type = (_st_match.group(1).strip().lower() if _st_match else 'volumes')
-if _storage_type not in ('garage', 's3'):
-    AUTO.pop('GARAGE_RPC_SECRET', None)
-    AUTO.pop('S3_ACCESS_KEY', None)
-    AUTO.pop('S3_SECRET_KEY', None)
 if not os.path.exists(ENV_FILE):
     if not os.path.exists('.env.example'):
         print(f'\n  {RD}✗{R}  {ENV_FILE} not found\n'); sys.exit(1)
@@ -159,6 +149,15 @@ if not os.path.exists(ENV_FILE):
     print(f'  {GR}✓{R}  Created {ENV_FILE} from example\n')
 with open(ENV_FILE) as f:
     content = f.read()
+# Only generate garage/s3 keys if those storage types are configured
+import re as _re
+_st_match = _re.search(r'^STORAGE_TYPE=(.+)$$', content, _re.M)
+_storage_type = (_st_match.group(1).strip().lower() if _st_match else 'volumes')
+if _storage_type not in ('garage', 's3'):
+    AUTO.pop('S3_ACCESS_KEY', None)
+    AUTO.pop('S3_SECRET_KEY', None)
+if _storage_type != 'garage':
+    AUTO.pop('GARAGE_RPC_SECRET', None)
 def get_val(key):
     m = re.search(rf'^{key}=(.+)$$', content, re.M)
     return m.group(1).strip() if m else ''
@@ -246,8 +245,10 @@ SECRETS = ['POSTGRES_PASSWORD','MACAROON_SECRET_KEY','FORM_SECRET',
            'BRIDGE_DISCORD_DB_PASSWORD','BRIDGE_SIGNAL_DB_PASSWORD']
 storage_type_check = get('STORAGE_TYPE','volumes').lower()
 if storage_type_check in ('garage','s3'):
-    for k in ['S3_ACCESS_KEY','S3_SECRET_KEY','GARAGE_RPC_SECRET']:
+    for k in ['S3_ACCESS_KEY','S3_SECRET_KEY']:
         if not get(k): errors.append(f'{k} is required for STORAGE_TYPE={storage_type_check} — run: make secrets')
+if storage_type_check == 'garage':
+    if not get('GARAGE_RPC_SECRET'): errors.append('GARAGE_RPC_SECRET is required for STORAGE_TYPE=garage — run: make secrets')
 empty_secrets = [k for k in SECRETS if not get(k)]
 if empty_secrets:
     errors.append(f'{len(empty_secrets)} secret(s) are empty — run: make secrets')
@@ -855,9 +856,10 @@ env = {}; \
 t = env.get('STORAGE_TYPE','volumes'); \
 print(); \
 print(f'  \033[1mStorage type:\033[0m  {t}'); \
-t=='local' and print(f'  \033[1mData path:\033[0m     {env.get(\"DATA_PATH\",\"(not set)\")}'); \
-t=='s3'    and print(f'  \033[1mS3 bucket:\033[0m     {env.get(\"S3_BUCKET\",\"(not set)\")}'); \
-t=='s3'    and print(f'  \033[1mS3 endpoint:\033[0m   {env.get(\"S3_ENDPOINT\",\"(default AWS)\")}'); \
+t=='local'  and print(f'  \033[1mData path:\033[0m     {env.get(\"DATA_PATH\",\"(not set)\")}'); \
+t in ('s3','garage') and print(f'  \033[1mS3 bucket:\033[0m     {env.get(\"S3_BUCKET\",\"(not set)\")}'); \
+t=='s3'     and print(f'  \033[1mS3 endpoint:\033[0m   {env.get(\"S3_ENDPOINT\",\"(default AWS)\")}'); \
+t=='garage' and print(f'  \033[1mS3 endpoint:\033[0m   http://garage:3900 (local container)'); \
 print() \
 "
 
