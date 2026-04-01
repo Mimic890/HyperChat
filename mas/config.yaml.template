@@ -21,11 +21,7 @@ http:
       proxy_protocol: false
 
 database:
-  host: postgres
-  port: 5432
-  database: mas
-  username: mas
-  password: "${MAS_DB_PASSWORD}"
+  uri: "postgresql://mas:${MAS_DB_PASSWORD}@postgres/mas"
   max_connections: 10
   min_connections: 0
 
