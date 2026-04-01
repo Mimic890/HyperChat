@@ -58,7 +58,7 @@ email:
   from: "${SMTP_FROM}"
   reply_to: ""
   transport:
-    name: smtp
+    type: smtp
     hostname: "${SMTP_HOST}"
     port: ${SMTP_PORT}
     username: "${SMTP_USER}"
@@ -69,5 +69,5 @@ email:
   from: "noreply@${DOMAIN}"
   reply_to: ""
   transport:
-    name: blackhole
+    type: blackhole
 # {{ENDIF}}
