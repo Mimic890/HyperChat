@@ -617,6 +617,12 @@ down:
 	$(DC) down
 	printf '\n  $(D)Stack stopped.$(R)\n\n'
 
+reset:
+	$(call _header,— reset)
+	printf '  $(RD)!$(R)  This will DELETE all data volumes (postgres, synapse). Continue? [y/N] ' && read ans && [ "$${ans}" = y ]
+	$(DC) down -v
+	printf '\n  $(GR)✓$(R)  All volumes removed. Run make build && make up to start fresh.\n\n'
+
 restart:
 	$(call _header,— restarting)
 	$(DC) restart
