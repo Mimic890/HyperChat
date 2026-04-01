@@ -58,16 +58,15 @@ email:
   from: "${SMTP_FROM}"
   reply_to: ""
   transport:
-    type: smtp
-    hostname: "${SMTP_HOST}"
-    port: ${SMTP_PORT}
-    username: "${SMTP_USER}"
-    password: "${SMTP_PASS}"
+    smtp:
+      hostname: "${SMTP_HOST}"
+      port: ${SMTP_PORT}
+      username: "${SMTP_USER}"
+      password: "${SMTP_PASS}"
 # {{ENDIF}}
 # {{IF SMTP_DISABLED}}
 email:
   from: "noreply@${DOMAIN}"
   reply_to: ""
-  transport:
-    type: blackhole
+  transport: blackhole
 # {{ENDIF}}
