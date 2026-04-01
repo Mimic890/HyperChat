@@ -1186,7 +1186,10 @@ admin:
 	$(call _header,— create admin user)
 	@if grep -q '^ENABLE_MAS=true' .env 2>/dev/null; then \
 	  printf '  $(CY)→$(R)  MAS is enabled — creating user via MAS CLI\n\n'; \
-	  $(DC) exec mas mas-cli --config /config/config.yaml manage register-user --admin; \
+	  printf '  Username: '; read _u; \
+	  stty -echo; printf '  Password: '; read _p; stty echo; printf '\n'; \
+	  $(DC) exec mas mas-cli --config /config/config.yaml manage register-user --yes "$$_u" --admin && \
+	  $(DC) exec mas mas-cli --config /config/config.yaml manage set-password "$$_u" "$$_p"; \
 	else \
 	  printf '  $(CY)→$(R)  Follow the prompts below\n\n'; \
 	  $(DC) exec synapse register_new_matrix_user \
