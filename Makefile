@@ -675,9 +675,10 @@ lines.append(f'    encode zstd gzip')
 lines.append(sec_headers)
 if en('MAS'):
     lines.append(f'')
+    _mas_re = r'^/_matrix/client/[^/]+/(login|logout|refresh)(/.*)?$'
     lines.append(f'    # Auth endpoints → MAS (required for SSO and Element X login)')
     lines.append(f'    @mas {{')
-    lines.append(f'        path_regexp ^/_matrix/client/[^/]+/(login|logout|refresh)(/.*)?$')
+    lines.append(f'        path_regexp {_mas_re}')
     lines.append(f'    }}')
     lines.append(f'    handle @mas {{')
     lines.append(f'        reverse_proxy localhost:{port_mas}')
