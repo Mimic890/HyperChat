@@ -88,7 +88,7 @@ log_config: /config/log.config
 
 # ── Registration ──────────────────────────────────────────────────────────────
 
-enable_registration: false
+enable_registration: ${ENABLE_REGISTRATION:-false}
 
 # ── Federation ────────────────────────────────────────────────────────────────
 

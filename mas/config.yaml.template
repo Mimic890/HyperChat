@@ -48,6 +48,9 @@ passwords:
     - version: 1
       algorithm: argon2id
 
+account:
+  password_registration_enabled: ${ENABLE_REGISTRATION:-false}
+
 policy:
   data:
     admin_clients:
