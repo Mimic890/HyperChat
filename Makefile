@@ -673,9 +673,25 @@ lines.append(f'# Matrix homeserver')
 lines.append(f'{host_matrix} {{')
 lines.append(f'    encode zstd gzip')
 lines.append(sec_headers)
-lines.append(f'    reverse_proxy localhost:{port_synapse} {{')
-lines.append(f'        flush_interval -1')
-lines.append(f'    }}')
+if en('MAS'):
+    lines.append(f'')
+    lines.append(f'    # Auth endpoints → MAS (required for SSO and Element X login)')
+    for path in ['/_matrix/client/*/login', '/_matrix/client/*/login/*',
+                 '/_matrix/client/*/logout', '/_matrix/client/*/refresh']:
+        lines.append(f'    handle {path} {{')
+        lines.append(f'        reverse_proxy localhost:{port_mas}')
+        lines.append(f'    }}')
+    lines.append(f'')
+    lines.append(f'    # Everything else → Synapse')
+    lines.append(f'    handle {{')
+    lines.append(f'        reverse_proxy localhost:{port_synapse} {{')
+    lines.append(f'            flush_interval -1')
+    lines.append(f'        }}')
+    lines.append(f'    }}')
+else:
+    lines.append(f'    reverse_proxy localhost:{port_synapse} {{')
+    lines.append(f'        flush_interval -1')
+    lines.append(f'    }}')
 lines.append(f'}}')
 lines.append(f'')
 if en('ELEMENT'):
