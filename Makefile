@@ -484,6 +484,9 @@ if en('MAS'):
             print(f'  {GR}✓{R}  mas/signing.key')
         else:
             print(f'  {RD}✗{R}  Failed to generate MAS signing key: {r.stderr}'); sys.exit(1)
+    with open(mas_key) as _f: _pem = _f.read().strip()
+    _indent = '        '
+    full_env['MAS_SIGNING_KEY'] = '|\n' + '\n'.join(_indent + l for l in _pem.splitlines())
     process_template('mas/config.yaml.template', 'mas/config.yaml')
 # ── Storage override ──────────────────────────────────────────────────────────
 storage_compose = None

@@ -274,7 +274,6 @@ services:
     command: ["--config", "/config/config.yaml", "database", "migrate"]
     volumes:
       - ./mas/config.yaml:/config/config.yaml:ro
-      - ./mas/signing.key:/keys/signing.key:ro
     networks:
       - hyperchat
     depends_on:
@@ -288,7 +287,6 @@ services:
     command: ["--config", "/config/config.yaml", "server"]
     volumes:
       - ./mas/config.yaml:/config/config.yaml:ro
-      - ./mas/signing.key:/keys/signing.key:ro
     networks:
       - hyperchat
     depends_on:
