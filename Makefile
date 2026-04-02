@@ -1042,6 +1042,8 @@ help:
 	printf '    $(CY)make start$(R)              Pull images and start all services\n'
 	printf '    $(CY)make up$(R)                 Start services (no pull)\n'
 	printf '    $(CY)make down$(R)               Stop all services\n'
+	printf '    $(CY)make down v=1$(R)           Stop + delete volumes\n'
+	printf '    $(CY)make down v=1 i=1$(R)       Stop + delete volumes + images\n'
 	printf '    $(CY)make restart$(R)            Restart all services\n'
 	printf '\n'
 	printf '  $(B)Updates$(R)\n'
@@ -1184,7 +1186,7 @@ up:
 
 down:
 	$(call _header,— stopping)
-	$(DC) down
+	$(DC) down $(if $(filter 1,$(v)),--volumes) $(if $(filter 1,$(i)),--rmi all)
 	printf '\n  $(D)Stack stopped.$(R)\n\n'
 
 reset:
