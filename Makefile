@@ -8,7 +8,7 @@ DC_DEV  := docker compose -f docker-compose.dev.yml
 
 .PHONY: help secrets check build email dns email-test \
         start pull up down restart upgrade clear monitoring \
-        status health logs backup admin shell \
+        status watch health logs backup admin shell \
         prune-volumes \
         dev dev-down dev-reset dev-status dev-logs dev-admin dev-shell
 
@@ -905,6 +905,109 @@ print(f'    Prometheus  →  http://<prometheus_host>:9090')
 print(f'    Loki        →  http://<loki_host>:3100\n')
 endef
 
+# ── Python: live watch TUI ────────────────────────────────────────────────────
+define _watch_py
+import subprocess, json, time, sys, signal
+
+HIDE = '\033[?25l'; SHOW = '\033[?25h'; CLEAR = '\033[2J\033[H'
+R  = '\033[0m';  B  = '\033[1m';  D  = '\033[2m'
+GR = '\033[32m'; YL = '\033[33m'; RD = '\033[31m'; CY = '\033[36m'
+
+def get_ps():
+    r = subprocess.run(['docker','compose','ps','--format','json'], capture_output=True, text=True)
+    out = []
+    for line in r.stdout.strip().split('\n'):
+        if line.strip():
+            try: out.append(json.loads(line))
+            except: pass
+    return out
+
+def get_stats():
+    r = subprocess.run(['docker','stats','--no-stream','--format',
+                        '{"name":"{{.Name}}","cpu":"{{.CPUPerc}}","mem":"{{.MemUsage}}"}'],
+                       capture_output=True, text=True)
+    stats = {}
+    for line in r.stdout.strip().split('\n'):
+        if line.strip():
+            try:
+                d = json.loads(line)
+                stats[d['name']] = d
+            except: pass
+    return stats
+
+def cpu_color(val):
+    try:
+        v = float(val.rstrip('%'))
+        return GR if v < 30 else (YL if v < 70 else RD)
+    except: return D
+
+def render(svcs, stats):
+    svcs = [s for s in svcs if not (s.get('Service') or s.get('Name','')).endswith('-init')]
+    svcs.sort(key=lambda s: s.get('Service') or s.get('Name',''))
+    if not svcs:
+        return f'\n  {YL}No services running.{R}\n'
+    col_n = max(max(len(s.get('Service') or s.get('Name','')) for s in svcs), 7) + 1
+    W = dict(s=10, h=9, c=7, m=20, u=22)
+    def hline(l, mc, r):
+        return (f'  {CY}{l}{"─"*(col_n+4)}{"┬".join(["─"*(W[k]+2) for k in "shcmu"])}{r}{R}')
+    def hline(l, mc, r):
+        segs = f'{mc}{"─"*(W["s"]+2)}{mc}{"─"*(W["h"]+2)}{mc}{"─"*(W["c"]+2)}{mc}{"─"*(W["m"]+2)}{mc}{"─"*(W["u"]+2)}'
+        return f'  {CY}{l}{"─"*(col_n+4)}{segs}{r}{R}'
+    running = stopped = 0
+    rows = []
+    for s in svcs:
+        name   = s.get('Service') or s.get('Name','?')
+        state  = s.get('State','?')
+        health = s.get('Health','') or '—'
+        uptime = s.get('RunningFor','') or '—'
+        stat   = next((v for k,v in stats.items() if f'-{name}-' in k), None)
+        cpu    = stat['cpu'] if stat else '—'
+        mem    = (stat['mem'].split('/')[0].strip() if stat and '/' in stat['mem'] else stat['mem'] if stat else '—')
+        if state == 'running': running += 1; icon = f'{GR}●{R}'; sc = GR
+        elif state == 'exited': stopped += 1; icon = f'{RD}●{R}'; sc = RD
+        else: icon = f'{YL}●{R}'; sc = YL
+        hc = GR if health == 'healthy' else (RD if health == 'unhealthy' else D)
+        cc = cpu_color(cpu)
+        rows.append(
+            f'  {CY}│{R} {icon} {B}{name:<{col_n}}{R}'
+            f' {CY}│{R} {sc}{state:<{W["s"]}}{R}'
+            f' {CY}│{R} {hc}{health:<{W["h"]}}{R}'
+            f' {CY}│{R} {cc}{cpu:>{W["c"]}}{R}'
+            f' {CY}│{R} {D}{mem:<{W["m"]}}{R}'
+            f' {CY}│{R} {D}{uptime:<{W["u"]}}{R}'
+            f' {CY}│{R}'
+        )
+    sc = RD if stopped > 0 else D
+    header = (f'  {CY}│{R}   {B}{"Service":<{col_n}}{R}'
+              f' {CY}│{R} {D}{"State":<{W["s"]}}{R}'
+              f' {CY}│{R} {D}{"Health":<{W["h"]}}{R}'
+              f' {CY}│{R} {D}{"CPU":>{W["c"]}}{R}'
+              f' {CY}│{R} {D}{"Memory":<{W["m"]}}{R}'
+              f' {CY}│{R} {D}{"Uptime":<{W["u"]}}{R}'
+              f' {CY}│{R}')
+    out = [f'\n  {B}🔥  HyperChat{R}  {D}live monitor  ·  Ctrl+C to exit  ·  refreshes every 3s{R}\n',
+           hline('╭','┬','╮'), header, hline('├','┼','┤')]
+    out += rows
+    out += [hline('╰','┴','╯'),
+            f'\n  {D}{len(svcs)} services{R}  {CY}·{R}  {GR}{running} running{R}  {CY}·{R}  {sc}{stopped} stopped{R}\n']
+    return '\n'.join(out)
+
+def _exit(sig, frame):
+    sys.stdout.write(SHOW + '\n'); sys.stdout.flush(); sys.exit(0)
+signal.signal(signal.SIGINT, _exit)
+signal.signal(signal.SIGTERM, _exit)
+sys.stdout.write(HIDE); sys.stdout.flush()
+try:
+    while True:
+        svcs  = get_ps()
+        stats = get_stats()
+        sys.stdout.write(CLEAR + render(svcs, stats))
+        sys.stdout.flush()
+        time.sleep(3)
+finally:
+    sys.stdout.write(SHOW); sys.stdout.flush()
+endef
+
 # ── Write scripts to /tmp at Make-evaluation time ────────────────────────────
 $(file > /tmp/hc_status.py,$(_status_py))
 $(file > /tmp/hc_health.py,$(_health_py))
@@ -916,6 +1019,7 @@ $(file > /tmp/hc_caddy.py,$(_caddy_py))
 $(file > /tmp/hc_dns.py,$(_dns_py))
 $(file > /tmp/hc_email_check.py,$(_email_check_py))
 $(file > /tmp/hc_monitoring.py,$(_monitoring_py))
+$(file > /tmp/hc_watch.py,$(_watch_py))
 
 # ═════════════════════════════════════════════════════════════════════════════
 #  help
@@ -954,6 +1058,7 @@ help:
 	printf '\n'
 	printf '  $(B)Monitoring$(R)\n'
 	printf '    $(CY)make status$(R)             Service status dashboard\n'
+	printf '    $(CY)make watch$(R)              Live monitor with CPU/RAM (Ctrl+C to exit)\n'
 	printf '    $(CY)make health$(R)             Container health-check details\n'
 	printf '    $(CY)make logs$(R)               Follow logs for all services\n'
 	printf '    $(CY)make logs s=NAME$(R)        Follow logs for a specific service\n'
@@ -1186,6 +1291,10 @@ backup:
 status:
 	$(call _header,— status)
 	$(DC) ps --format json 2>/dev/null | python3 /tmp/hc_status.py
+
+watch:
+	$(call _header,— live monitor)
+	python3 /tmp/hc_watch.py
 
 health:
 	$(call _header,— health)
