@@ -16,6 +16,7 @@ http:
         - name: graphql
           playground: false
         - name: assets
+        - name: adminapi
       binds:
         - address: "[::]:8080"
       proxy_protocol: false
