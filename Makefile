@@ -908,6 +908,7 @@ endef
 # ── Python: live watch TUI ────────────────────────────────────────────────────
 define _watch_py
 import subprocess, json, time, sys, signal
+INTERVAL = float(sys.argv[1]) if len(sys.argv) > 1 else 3
 
 HIDE = '\033[?25l'; SHOW = '\033[?25h'; CLEAR = '\033[2J\033[H'
 R  = '\033[0m';  B  = '\033[1m';  D  = '\033[2m'
@@ -985,7 +986,7 @@ def render(svcs, stats):
               f' {CY}│{R} {D}{"Memory":<{W["m"]}}{R}'
               f' {CY}│{R} {D}{"Uptime":<{W["u"]}}{R}'
               f' {CY}│{R}')
-    out = [f'\n  {B}🔥  HyperChat{R}  {D}live monitor  ·  Ctrl+C to exit  ·  refreshes every 3s{R}\n',
+    out = [f'\n  {B}🔥  HyperChat{R}  {D}live monitor  ·  Ctrl+C to exit  ·  refreshes every {INTERVAL:.0f}s{R}\n',
            hline('╭','┬','╮'), header, hline('├','┼','┤')]
     out += rows
     out += [hline('╰','┴','╯'),
@@ -1003,7 +1004,7 @@ try:
         stats = get_stats()
         sys.stdout.write(CLEAR + render(svcs, stats))
         sys.stdout.flush()
-        time.sleep(3)
+        time.sleep(INTERVAL)
 finally:
     sys.stdout.write(SHOW); sys.stdout.flush()
 endef
@@ -1061,6 +1062,7 @@ help:
 	printf '  $(B)Monitoring$(R)\n'
 	printf '    $(CY)make status$(R)             Service status dashboard\n'
 	printf '    $(CY)make watch$(R)              Live monitor with CPU/RAM (Ctrl+C to exit)\n'
+	printf '    $(CY)make watch t=5$(R)          Live monitor with custom refresh interval (seconds)\n'
 	printf '    $(CY)make health$(R)             Container health-check details\n'
 	printf '    $(CY)make logs$(R)               Follow logs for all services\n'
 	printf '    $(CY)make logs s=NAME$(R)        Follow logs for a specific service\n'
@@ -1296,7 +1298,7 @@ status:
 
 watch:
 	$(call _header,— live monitor)
-	python3 /tmp/hc_watch.py
+	python3 /tmp/hc_watch.py $(or $(t),3)
 
 health:
 	$(call _header,— health)
