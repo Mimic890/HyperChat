@@ -62,12 +62,11 @@ upstream_oauth2:
 # {{IF SMTP_ENABLED}}
 email:
   from: "${SMTP_FROM}"
-  transport:
-    type: smtp
-    hostname: "${SMTP_HOST}"
-    port: ${SMTP_PORT}
-    username: "${SMTP_USER}"
-    password: "${SMTP_PASS}"
+  transport: smtp
+  hostname: "${SMTP_HOST}"
+  port: ${SMTP_PORT}
+  username: "${SMTP_USER}"
+  password: "${SMTP_PASS}"
 # {{ENDIF}}
 # {{IF SMTP_DISABLED}}
 email:
