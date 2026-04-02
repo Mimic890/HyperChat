@@ -676,11 +676,12 @@ lines.append(sec_headers)
 if en('MAS'):
     lines.append(f'')
     lines.append(f'    # Auth endpoints → MAS (required for SSO and Element X login)')
-    for path in ['/_matrix/client/*/login', '/_matrix/client/*/login/*',
-                 '/_matrix/client/*/logout', '/_matrix/client/*/refresh']:
-        lines.append(f'    handle {path} {{')
-        lines.append(f'        reverse_proxy localhost:{port_mas}')
-        lines.append(f'    }}')
+    lines.append(f'    @mas {{')
+    lines.append(f'        path_regexp ^/_matrix/client/[^/]+/(login|logout|refresh)(/.*)?$')
+    lines.append(f'    }}')
+    lines.append(f'    handle @mas {{')
+    lines.append(f'        reverse_proxy localhost:{port_mas}')
+    lines.append(f'    }}')
     lines.append(f'')
     lines.append(f'    # Everything else → Synapse')
     lines.append(f'    handle {{')
