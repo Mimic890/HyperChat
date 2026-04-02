@@ -23,6 +23,7 @@
 | **mautrix-whatsapp** | `dock.mau.dev/mautrix/whatsapp:latest` | WhatsApp bridge *(optional)* |
 | **mautrix-discord** | `dock.mau.dev/mautrix/discord:latest` | Discord bridge *(optional)* |
 | **mautrix-signal** | `dock.mau.dev/mautrix/signal:latest` | Signal bridge *(optional)* |
+| **MAS** | `ghcr.io/element-hq/matrix-authentication-service:latest` | Modern auth, OIDC/OAuth2, QR login *(optional)* |
 | **nginx** | `nginx:alpine` | Sticker picker host *(optional)* |
 
 Optional services are enabled in `.env` and activated automatically by `make build`.
@@ -87,7 +88,20 @@ Leave `SUBDOMAIN_ELEMENT` empty to serve Element at the root domain (recommended
 Set any subdomain to a custom value — `make build` computes the full hostnames and propagates
 them through Caddyfile generation, DNS checks, and Traefik routing automatically.
 
-Enable optional services by setting `ENABLE_*=true`. See `.env.example` for all options.
+Enable optional services by setting `ENABLE_*=true`. Key options:
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `ENABLE_REGISTRATION` | `false` | Allow public registration of new accounts |
+| `ENABLE_MAS` | `false` | Matrix Authentication Service (modern auth, required for Element X) |
+| `ENABLE_BRIDGE_TELEGRAM` | `false` | Telegram bridge |
+| `ENABLE_BRIDGE_WHATSAPP` | `false` | WhatsApp bridge |
+| `ENABLE_BRIDGE_DISCORD` | `false` | Discord bridge |
+| `ENABLE_BRIDGE_SIGNAL` | `false` | Signal bridge |
+| `ENABLE_VOIP` | `false` | VoIP (Coturn + LiveKit for group calls) |
+| `ENABLE_S3` | `false` | S3 media storage |
+
+See `.env.example` for all options.
 
 ### 3. Generate secrets
 
@@ -220,6 +234,9 @@ DISCORD_BOT_TOKEN=...
 
 Re-run `make build && make start` to apply.
 
+Bridge databases are created automatically and idempotently on each startup — you can safely
+add a bridge to an already-running stack and it will work without manual DB setup.
+
 On first startup, each bridge generates a Synapse registration file. After `make start`,
 wait ~30 seconds, then restart Synapse to load the new registrations:
 
@@ -253,6 +270,8 @@ Run `make` with no arguments to see the full list.
 | `make start` | Pull images and start all services |
 | `make up` | Start services without pulling |
 | `make down` | Stop all services |
+| `make down v=1` | Stop and delete all data volumes |
+| `make down v=1 i=1` | Stop, delete volumes, and remove images |
 | `make restart` | Restart all services |
 
 **Updates**
@@ -277,6 +296,8 @@ Run `make` with no arguments to see the full list.
 | Command | Description |
 |---------|-------------|
 | `make status` | Colour-coded service status dashboard |
+| `make watch` | Live TUI dashboard with CPU/RAM stats (auto-refresh every 3s) |
+| `make watch t=5` | Same, but refresh every 5 seconds |
 | `make health` | Container health-check details |
 | `make logs` | Follow logs for all services |
 | `make logs s=NAME` | Follow logs for a specific service |
@@ -321,8 +342,10 @@ HyperChat/
 │   ├── whatsapp/config.yaml.template
 │   ├── discord/config.yaml.template
 │   └── signal/config.yaml.template
+├── mas/
+│   └── config.yaml.template        # → config.yaml (MAS auth service)
 ├── postgres/
-│   └── init-databases.sh           # Creates per-bridge databases on first run
+│   └── init-databases.sh           # Creates per-bridge databases on first postgres start
 └── stickerpicker/
     └── index.html
 ```

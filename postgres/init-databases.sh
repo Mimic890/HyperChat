@@ -1,61 +1,42 @@
 #!/usr/bin/env bash
-# Creates one PostgreSQL database + user per bridge.
+# Creates PostgreSQL databases for enabled services.
 # Runs automatically on first postgres container startup.
-# Bridge DB passwords come from environment variables passed in docker-compose.yml.
+# Only creates DBs when the corresponding password env var is set.
 set -e
 
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-
-    -- mautrix-telegram
-    CREATE USER mautrix_telegram WITH PASSWORD '${BRIDGE_TELEGRAM_DB_PASSWORD}';
-    CREATE DATABASE mautrix_telegram
-        ENCODING 'UTF8'
-        LC_COLLATE = 'C'
-        LC_CTYPE   = 'C'
-        TEMPLATE   = template0
-        OWNER      = mautrix_telegram;
-
-    -- mautrix-whatsapp
-    CREATE USER mautrix_whatsapp WITH PASSWORD '${BRIDGE_WHATSAPP_DB_PASSWORD}';
-    CREATE DATABASE mautrix_whatsapp
-        ENCODING 'UTF8'
-        LC_COLLATE = 'C'
-        LC_CTYPE   = 'C'
-        TEMPLATE   = template0
-        OWNER      = mautrix_whatsapp;
-
-    -- mautrix-discord
-    CREATE USER mautrix_discord WITH PASSWORD '${BRIDGE_DISCORD_DB_PASSWORD}';
-    CREATE DATABASE mautrix_discord
-        ENCODING 'UTF8'
-        LC_COLLATE = 'C'
-        LC_CTYPE   = 'C'
-        TEMPLATE   = template0
-        OWNER      = mautrix_discord;
-
-    -- mautrix-signal
-    CREATE USER mautrix_signal WITH PASSWORD '${BRIDGE_SIGNAL_DB_PASSWORD}';
-    CREATE DATABASE mautrix_signal
-        ENCODING 'UTF8'
-        LC_COLLATE = 'C'
-        LC_CTYPE   = 'C'
-        TEMPLATE   = template0
-        OWNER      = mautrix_signal;
-
+# ── Bridges ──────────────────────────────────────────────────────────────────
+for bridge in telegram whatsapp discord signal; do
+    upper=$(echo "$bridge" | tr '[:lower:]' '[:upper:]')
+    pw_var="BRIDGE_${upper}_DB_PASSWORD"
+    pw=$(eval echo "\${${pw_var}:-}")
+    if [ -n "$pw" ]; then
+        echo "Creating database for mautrix_${bridge}..."
+        psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+            CREATE USER mautrix_${bridge} WITH PASSWORD '${pw}';
+            CREATE DATABASE mautrix_${bridge}
+                ENCODING 'UTF8'
+                LC_COLLATE = 'C'
+                LC_CTYPE   = 'C'
+                TEMPLATE   = template0
+                OWNER      = mautrix_${bridge};
 EOSQL
+        echo "  ✓ mautrix_${bridge}"
+    fi
+done
 
-echo "Bridge databases created successfully."
-
-# Matrix Authentication Service (MAS) — only if MAS_DB_PASSWORD is set
+# ── MAS ──────────────────────────────────────────────────────────────────────
 if [ -n "${MAS_DB_PASSWORD:-}" ]; then
-psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-    CREATE USER mas WITH PASSWORD '${MAS_DB_PASSWORD}';
-    CREATE DATABASE mas
-        ENCODING 'UTF8'
-        LC_COLLATE = 'C'
-        LC_CTYPE   = 'C'
-        TEMPLATE   = template0
-        OWNER      = mas;
+    echo "Creating database for MAS..."
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+        CREATE USER mas WITH PASSWORD '${MAS_DB_PASSWORD}';
+        CREATE DATABASE mas
+            ENCODING 'UTF8'
+            LC_COLLATE = 'C'
+            LC_CTYPE   = 'C'
+            TEMPLATE   = template0
+            OWNER      = mas;
 EOSQL
-echo "MAS database created."
+    echo "  ✓ mas"
 fi
+
+echo "Database initialization complete."

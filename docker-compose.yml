@@ -159,6 +159,22 @@ services:
 
   # ── Bridges ───────────────────────────────────────────────────────────────────
 
+  bridge-telegram-db-init:
+    profiles: [bridge-telegram]
+    image: postgres:16-alpine
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - "PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -c \"CREATE USER mautrix_telegram WITH PASSWORD '$$BRIDGE_TELEGRAM_DB_PASSWORD'\" 2>/dev/null || true; PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -c \"CREATE DATABASE mautrix_telegram ENCODING 'UTF8' LC_COLLATE='C' LC_CTYPE='C' TEMPLATE=template0 OWNER=mautrix_telegram\" 2>/dev/null || true; echo 'telegram db ready'"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      BRIDGE_TELEGRAM_DB_PASSWORD: ${BRIDGE_TELEGRAM_DB_PASSWORD:-}
+    networks:
+      - hyperchat
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   bridge-telegram:
     profiles: [bridge-telegram]
     image: dock.mau.dev/mautrix/telegram:latest
@@ -168,8 +184,24 @@ services:
     networks:
       - hyperchat
     depends_on:
+      bridge-telegram-db-init:
+        condition: service_completed_successfully
       synapse:
         condition: service_healthy
+
+  bridge-whatsapp-db-init:
+    profiles: [bridge-whatsapp]
+    image: postgres:16-alpine
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - "PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -c \"CREATE USER mautrix_whatsapp WITH PASSWORD '$$BRIDGE_WHATSAPP_DB_PASSWORD'\" 2>/dev/null || true; PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -c \"CREATE DATABASE mautrix_whatsapp ENCODING 'UTF8' LC_COLLATE='C' LC_CTYPE='C' TEMPLATE=template0 OWNER=mautrix_whatsapp\" 2>/dev/null || true; echo 'whatsapp db ready'"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      BRIDGE_WHATSAPP_DB_PASSWORD: ${BRIDGE_WHATSAPP_DB_PASSWORD:-}
+    networks:
+      - hyperchat
+    depends_on:
       postgres:
         condition: service_healthy
 
@@ -182,8 +214,24 @@ services:
     networks:
       - hyperchat
     depends_on:
+      bridge-whatsapp-db-init:
+        condition: service_completed_successfully
       synapse:
         condition: service_healthy
+
+  bridge-discord-db-init:
+    profiles: [bridge-discord]
+    image: postgres:16-alpine
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - "PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -c \"CREATE USER mautrix_discord WITH PASSWORD '$$BRIDGE_DISCORD_DB_PASSWORD'\" 2>/dev/null || true; PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -c \"CREATE DATABASE mautrix_discord ENCODING 'UTF8' LC_COLLATE='C' LC_CTYPE='C' TEMPLATE=template0 OWNER=mautrix_discord\" 2>/dev/null || true; echo 'discord db ready'"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      BRIDGE_DISCORD_DB_PASSWORD: ${BRIDGE_DISCORD_DB_PASSWORD:-}
+    networks:
+      - hyperchat
+    depends_on:
       postgres:
         condition: service_healthy
 
@@ -196,8 +244,24 @@ services:
     networks:
       - hyperchat
     depends_on:
+      bridge-discord-db-init:
+        condition: service_completed_successfully
       synapse:
         condition: service_healthy
+
+  bridge-signal-db-init:
+    profiles: [bridge-signal]
+    image: postgres:16-alpine
+    restart: "no"
+    entrypoint: ["sh", "-c"]
+    command:
+      - "PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -c \"CREATE USER mautrix_signal WITH PASSWORD '$$BRIDGE_SIGNAL_DB_PASSWORD'\" 2>/dev/null || true; PGPASSWORD=$$POSTGRES_PASSWORD psql -h postgres -U synapse -c \"CREATE DATABASE mautrix_signal ENCODING 'UTF8' LC_COLLATE='C' LC_CTYPE='C' TEMPLATE=template0 OWNER=mautrix_signal\" 2>/dev/null || true; echo 'signal db ready'"
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-}
+      BRIDGE_SIGNAL_DB_PASSWORD: ${BRIDGE_SIGNAL_DB_PASSWORD:-}
+    networks:
+      - hyperchat
+    depends_on:
       postgres:
         condition: service_healthy
 
@@ -210,9 +274,9 @@ services:
     networks:
       - hyperchat
     depends_on:
+      bridge-signal-db-init:
+        condition: service_completed_successfully
       synapse:
-        condition: service_healthy
-      postgres:
         condition: service_healthy
 
   # ── VoIP — Coturn ─────────────────────────────────────────────────────────────
