@@ -475,7 +475,7 @@ if storage_type == 'garage':
     process_template('garage/garage.toml.template', 'garage/garage.toml')
 if en('MAS'):
     mas_key = 'mas/signing.key'
-    if not _os.path.exists(mas_key):
+    if not os.path.exists(mas_key):
         import subprocess as _sp
         r = _sp.run(['openssl','genpkey','-algorithm','EC','-pkeyopt','ec_paramgen_curve:P-256'],
                     capture_output=True, text=True)
@@ -483,7 +483,7 @@ if en('MAS'):
             with open(mas_key,'w') as _f: _f.write(r.stdout)
             print(f'  {GR}✓{R}  mas/signing.key')
         else:
-            print(f'  {RD}✗{R}  Failed to generate MAS signing key: {r.stderr}'); _sys.exit(1)
+            print(f'  {RD}✗{R}  Failed to generate MAS signing key: {r.stderr}'); sys.exit(1)
     process_template('mas/config.yaml.template', 'mas/config.yaml')
 # ── Storage override ──────────────────────────────────────────────────────────
 storage_compose = None
