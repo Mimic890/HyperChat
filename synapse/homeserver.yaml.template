@@ -127,7 +127,6 @@ report_stats: false
 experimental_features:
   msc3266_enabled: true
   msc2285_enabled: true
-  msc3886_enabled: true
   msc3861:
     enabled: true
     issuer: "https://${HOST_MAS}/"
