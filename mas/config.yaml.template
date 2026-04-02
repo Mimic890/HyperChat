@@ -63,6 +63,7 @@ upstream_oauth2:
 email:
   from: "${SMTP_FROM}"
   transport: smtp
+  mode: starttls
   hostname: "${SMTP_HOST}"
   port: ${SMTP_PORT}
   username: "${SMTP_USER}"
