@@ -477,7 +477,7 @@ if en('MAS'):
     mas_key = 'mas/signing.key'
     if not os.path.exists(mas_key):
         import subprocess as _sp
-        r = _sp.run(['openssl','genpkey','-algorithm','EC','-pkeyopt','ec_paramgen_curve:P-256'],
+        r = _sp.run(['openssl','genpkey','-algorithm','RSA','-pkeyopt','rsa_keygen_bits:2048'],
                     capture_output=True, text=True)
         if r.returncode == 0:
             with open(mas_key,'w') as _f: _f.write(r.stdout)
