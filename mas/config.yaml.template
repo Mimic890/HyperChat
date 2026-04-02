@@ -32,6 +32,10 @@ matrix:
 
 secrets:
   encryption: "${MAS_ENCRYPTION_KEY}"
+  keys:
+    - kid: "signing"
+      key:
+        path: "/keys/signing.key"
 
 clients:
   - client_id: "0000000000000000000SYNAPSE"
