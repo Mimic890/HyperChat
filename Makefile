@@ -293,6 +293,11 @@ if get('ENABLE_MAS','').lower()=='true':
     subdomain_mas = get('SUBDOMAIN_MAS','auth')
     if not subdomain_mas:
         errors.append('SUBDOMAIN_MAS must not be empty when ENABLE_MAS=true')
+admin_panel = get('ADMIN_PANEL','synapse').lower()
+if admin_panel not in ('synapse','element'):
+    errors.append(f'ADMIN_PANEL must be "synapse" or "element" (got: {admin_panel!r})')
+if get('ENABLE_MAS','').lower()=='true' and admin_panel == 'synapse':
+    warnings.append('ENABLE_MAS=true: Synapse Admin does not support MAS auth — set ADMIN_PANEL=element to use Element Admin')
 if get('ENABLE_BRIDGE_TELEGRAM','').lower()=='true' and not get('TELEGRAM_API_ID'):
     warnings.append('TELEGRAM_API_ID is empty — bridge will not work without it')
 if get('ENABLE_BRIDGE_TELEGRAM','').lower()=='true' and not get('TELEGRAM_API_HASH'):
@@ -311,6 +316,8 @@ svc_on = [k.replace("ENABLE_","").lower() for k,v in env.items()
 print(f'  {B}{"Services":<{col}}{R}  {", ".join(svc_on) if svc_on else D+"none"+R}')
 secret_ok = len(SECRETS) - len(empty_secrets)
 print(f'  {B}{"Secrets":<{col}}{R}  {GR}{secret_ok}/{len(SECRETS)} filled{R}')
+_admin_effective = 'element (forced by MAS)' if get('ENABLE_MAS','').lower()=='true' else admin_panel
+print(f'  {B}{"Admin panel":<{col}}{R}  {_admin_effective}')
 print()
 if warnings:
     for w in warnings: print(f'  {YL}⚠{R}  {w}')
@@ -781,9 +788,16 @@ if en('MAS'):
     lines.append(f'    }}')
     lines.append(f'}}')
     lines.append(f'')
-lines.append(f'# Synapse Admin — protected, localhost only (bind: 127.0.0.1:{port_admin})')
-lines.append(f'# Access via SSH tunnel: ssh -L {port_admin}:localhost:{port_admin} user@{domain}')
-lines.append(f'# Then open: http://localhost:{port_admin}')
+admin_panel = get('ADMIN_PANEL', 'synapse').lower()
+use_element_admin = en('MAS') or admin_panel == 'element'
+if use_element_admin:
+    lines.append(f'# Admin panel: Element Admin (MAS-compatible)')
+    lines.append(f'# Open https://admin-beta.element.dev and connect to: https://{host_mas}/')
+    lines.append(f'# (Synapse Admin is also running locally at 127.0.0.1:{port_admin} but does not support MAS auth)')
+else:
+    lines.append(f'# Admin panel: Synapse Admin — protected, localhost only (bind: 127.0.0.1:{port_admin})')
+    lines.append(f'# Access via SSH tunnel: ssh -L {port_admin}:localhost:{port_admin} user@{domain}')
+    lines.append(f'# Then open: http://localhost:{port_admin}')
 config = '\n'.join(lines)
 print(f'\n  {B}Caddyfile blocks for {CY}{domain}{R}{B}:{R}\n')
 print('  ' + '-'*60)
