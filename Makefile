@@ -8,7 +8,7 @@ DC_DEV  := docker compose -f docker-compose.dev.yml
 
 .PHONY: help secrets check build email dns email-test \
         start pull up down restart upgrade clear monitoring \
-        status watch health logs backup admin shell \
+        status watch health logs backup admin user shell \
         prune-volumes \
         dev dev-down dev-reset dev-status dev-logs dev-admin dev-shell
 
@@ -1163,6 +1163,7 @@ help:
 	printf '\n'
 	printf '  $(B)Admin$(R)\n'
 	printf '    $(CY)make admin$(R)              Create a Matrix admin user\n'
+	printf '    $(CY)make user$(R)               Create a regular user\n'
 	printf '    $(CY)make shell s=NAME$(R)       Open a shell inside a service container\n'
 	printf '\n'
 	printf '  $(B)Local dev$(R)  $(D)(no domain · no TLS · open registration)$(R)\n'
@@ -1433,6 +1434,22 @@ admin:
 	  printf '  $(CY)→$(R)  Follow the prompts below\n\n'; \
 	  $(DC) exec synapse register_new_matrix_user \
 	    -c /config/homeserver.yaml --admin http://localhost:8008; \
+	fi
+	printf '\n'
+
+user:
+	$(call _header,— create user)
+	@if grep -q '^ENABLE_MAS=true' .env 2>/dev/null; then \
+	  printf '  $(CY)→$(R)  MAS is enabled — creating user via MAS CLI\n\n'; \
+	  printf '  Username: '; read _u; \
+	  printf '  Email:    '; read _e; \
+	  stty -echo; printf '  Password: '; read _p; stty echo; printf '\n\n'; \
+	  $(DC) exec mas mas-cli --config /config/config.yaml manage register-user --yes "$$_u" --email "$$_e" && \
+	  $(DC) exec mas mas-cli --config /config/config.yaml manage set-password "$$_u" "$$_p"; \
+	else \
+	  printf '  $(CY)→$(R)  Follow the prompts below\n\n'; \
+	  $(DC) exec synapse register_new_matrix_user \
+	    -c /config/homeserver.yaml --no-admin http://localhost:8008; \
 	fi
 	printf '\n'
 
