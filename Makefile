@@ -626,6 +626,63 @@ for key, val in [('SMTP_HOST',smtp_host),('SMTP_PORT',smtp_port),
 print(f'\n  {GR}{B}✓ Saved{R}  — run {CY}make build{R} to apply\n')
 endef
 
+# ── Python: user creation ─────────────────────────────────────────────────────
+define _create_user_py
+import getpass, os, re, subprocess, sys, urllib.request, urllib.error, json
+R='\033[0m'; B='\033[1m'; GR='\033[32m'; RD='\033[31m'; CY='\033[36m'; YL='\033[33m'
+is_admin = '--admin' in sys.argv
+env = {}
+with open('.env') as f:
+    for line in f:
+        m = re.match(r'^([A-Z_][A-Z0-9_]*)=(.*)$$', line.strip())
+        if m: env[m.group(1)] = m.group(2).strip('"\'')
+def get(k, d=''): return env.get(k, d)
+use_mas = get('ENABLE_MAS','false').lower() == 'true'
+dc = ['docker', 'compose']
+if os.path.exists('docker-compose.storage.yml'):
+    dc += ['-f','docker-compose.yml','-f','docker-compose.storage.yml']
+print()
+username = input(f'  Username: ').strip()
+if not username: print(f'\n  {RD}✗{R}  Username cannot be empty\n'); sys.exit(1)
+if use_mas:
+    email = input(f'  Email:    ').strip()
+    if not email: print(f'\n  {RD}✗{R}  Email is required for MAS\n'); sys.exit(1)
+password = getpass.getpass(f'  Password: ')
+if not password: print(f'\n  {RD}✗{R}  Password cannot be empty\n'); sys.exit(1)
+print()
+if use_mas:
+    mas_cmd = dc + ['exec','mas','mas-cli','--config','/config/config.yaml','manage']
+    extra = ['--admin'] if is_admin else []
+    r = subprocess.run(mas_cmd + ['register-user','--yes', username, '--email', email] + extra)
+    if r.returncode != 0: print(f'\n  {RD}✗{R}  Failed to create user\n'); sys.exit(1)
+    r = subprocess.run(mas_cmd + ['set-password', username, password])
+    if r.returncode != 0: print(f'\n  {RD}✗{R}  Failed to set password\n'); sys.exit(1)
+    if is_admin:
+        print(f'\n  {CY}→{R}  Granting Matrix admin via Synapse API...')
+        token = get('MAS_ADMIN_TOKEN')
+        server = get('MATRIX_SERVER_NAME', get('DOMAIN'))
+        url = f'http://localhost:{get("PORT_SYNAPSE","8008")}/_synapse/admin/v2/users/@{username}:{server}'
+        req = urllib.request.Request(url, method='PUT',
+            data=json.dumps({'admin': True}).encode(),
+            headers={'Authorization': f'Bearer {token}', 'Content-Type': 'application/json'})
+        try:
+            with urllib.request.urlopen(req) as resp:
+                data = json.loads(resp.read())
+                if data.get('admin'):
+                    print(f'  {GR}✓{R}  Matrix admin granted')
+                else:
+                    print(f'  {YL}⚠{R}  User created but admin flag not confirmed')
+        except urllib.error.URLError as e:
+            print(f'  {YL}⚠{R}  Synapse API unreachable: {e.reason}')
+            print(f'  {YL}⚠{R}  Run after first login: make set-admin u={username}')
+else:
+    flag = '--admin' if is_admin else '--no-admin'
+    subprocess.run(dc + ['exec','synapse','register_new_matrix_user',
+        '-c','/config/homeserver.yaml', flag, 'http://localhost:8008'],
+        input=f'{username}\n{password}\n{password}\n'.encode())
+print(f'\n  {GR}{B}✓ Done{R}  @{username}:{get("MATRIX_SERVER_NAME", get("DOMAIN"))} created\n')
+endef
+
 # ── Python: caddy config generator ───────────────────────────────────────────
 define _caddy_py
 import os, re, sys
@@ -1415,43 +1472,13 @@ logs:
 
 admin:
 	$(call _header,— create admin user)
-	@if grep -q '^ENABLE_MAS=true' .env 2>/dev/null; then \
-	  printf '  $(CY)→$(R)  MAS is enabled — creating user via MAS CLI\n\n'; \
-	  printf '  Username: '; read _u; \
-	  printf '  Email:    '; read _e; \
-	  stty -echo; printf '  Password: '; read _p; stty echo; printf '\n\n'; \
-	  $(DC) exec mas mas-cli --config /config/config.yaml manage register-user --yes "$$_u" --admin --email "$$_e" && \
-	  $(DC) exec mas mas-cli --config /config/config.yaml manage set-password "$$_u" "$$_p" && \
-	  printf '  $(CY)→$(R)  Granting Matrix admin via Synapse API...\n'; \
-	  _tok=$$(grep '^MAS_ADMIN_TOKEN=' .env | cut -d= -f2 | tr -d '"'"'"'); \
-	  $(DC) exec synapse curl -sf -X PUT \
-	    -H "Authorization: Bearer $$_tok" \
-	    -H "Content-Type: application/json" \
-	    -d '{"admin":true}' \
-	    "http://localhost:8008/_synapse/admin/v2/users/@$$_u:$$(grep '^MATRIX_SERVER_NAME=' .env | cut -d= -f2 | tr -d '"'"'"')" \
-	    | grep -q '"admin":true' && printf '  $(GR)✓$(R)  Matrix admin granted\n' || printf '  $(YL)⚠$(R)  Could not verify admin status (user may need to log in first)\n'; \
-	else \
-	  printf '  $(CY)→$(R)  Follow the prompts below\n\n'; \
-	  $(DC) exec synapse register_new_matrix_user \
-	    -c /config/homeserver.yaml --admin http://localhost:8008; \
-	fi
-	printf '\n'
+	$(file > /tmp/hc_create_user.py,$(_create_user_py))
+	@python3 /tmp/hc_create_user.py --admin
 
 user:
 	$(call _header,— create user)
-	@if grep -q '^ENABLE_MAS=true' .env 2>/dev/null; then \
-	  printf '  $(CY)→$(R)  MAS is enabled — creating user via MAS CLI\n\n'; \
-	  printf '  Username: '; read _u; \
-	  printf '  Email:    '; read _e; \
-	  stty -echo; printf '  Password: '; read _p; stty echo; printf '\n\n'; \
-	  $(DC) exec mas mas-cli --config /config/config.yaml manage register-user --yes "$$_u" --email "$$_e" && \
-	  $(DC) exec mas mas-cli --config /config/config.yaml manage set-password "$$_u" "$$_p"; \
-	else \
-	  printf '  $(CY)→$(R)  Follow the prompts below\n\n'; \
-	  $(DC) exec synapse register_new_matrix_user \
-	    -c /config/homeserver.yaml --no-admin http://localhost:8008; \
-	fi
-	printf '\n'
+	$(file > /tmp/hc_create_user.py,$(_create_user_py))
+	@python3 /tmp/hc_create_user.py
 
 shell:
 	if [ -z "$(s)" ]; then
