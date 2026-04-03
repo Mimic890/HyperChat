@@ -1417,9 +1417,18 @@ admin:
 	@if grep -q '^ENABLE_MAS=true' .env 2>/dev/null; then \
 	  printf '  $(CY)→$(R)  MAS is enabled — creating user via MAS CLI\n\n'; \
 	  printf '  Username: '; read _u; \
-	  stty -echo; printf '  Password: '; read _p; stty echo; printf '\n'; \
-	  $(DC) exec mas mas-cli --config /config/config.yaml manage register-user --yes "$$_u" --admin && \
-	  $(DC) exec mas mas-cli --config /config/config.yaml manage set-password "$$_u" "$$_p"; \
+	  printf '  Email:    '; read _e; \
+	  stty -echo; printf '  Password: '; read _p; stty echo; printf '\n\n'; \
+	  $(DC) exec mas mas-cli --config /config/config.yaml manage register-user --yes "$$_u" --admin --email "$$_e" && \
+	  $(DC) exec mas mas-cli --config /config/config.yaml manage set-password "$$_u" "$$_p" && \
+	  printf '  $(CY)→$(R)  Granting Matrix admin via Synapse API...\n'; \
+	  _tok=$$(grep '^MAS_ADMIN_TOKEN=' .env | cut -d= -f2 | tr -d '"'"'"'); \
+	  $(DC) exec synapse curl -sf -X PUT \
+	    -H "Authorization: Bearer $$_tok" \
+	    -H "Content-Type: application/json" \
+	    -d '{"admin":true}' \
+	    "http://localhost:8008/_synapse/admin/v2/users/@$$_u:$$(grep '^MATRIX_SERVER_NAME=' .env | cut -d= -f2 | tr -d '"'"'"')" \
+	    | grep -q '"admin":true' && printf '  $(GR)✓$(R)  Matrix admin granted\n' || printf '  $(YL)⚠$(R)  Could not verify admin status (user may need to log in first)\n'; \
 	else \
 	  printf '  $(CY)→$(R)  Follow the prompts below\n\n'; \
 	  $(DC) exec synapse register_new_matrix_user \
